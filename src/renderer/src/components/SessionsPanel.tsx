@@ -16,9 +16,10 @@ interface Props {
 
 /**
  * Every Claude Code session the hooks have reported, and the iMessage alert
- * for when one is blocked on the user. Without the hooks the app sees
- * nothing, so until they are installed the panel is just the offer to
- * install them.
+ * for when one is blocked on the user. Without the hooks the app sees no
+ * sessions, so until they are installed the list is replaced by the offer to
+ * install them; the alert settings stay visible either way, so the number to
+ * text can be set whenever it suits.
  */
 export function SessionsPanel({ state, now, actions }: Props) {
   const { hooksInstalled, sessions } = state.sessions
@@ -36,7 +37,7 @@ export function SessionsPanel({ state, now, actions }: Props) {
         </div>
       )}
       {hooksInstalled || sessions.length > 0 ? <SessionList sessions={sessions} now={now} /> : null}
-      {hooksInstalled ? <AlertsCard state={state} now={now} actions={actions} /> : null}
+      <AlertsCard state={state} now={now} actions={actions} />
     </section>
   )
 }
@@ -110,9 +111,11 @@ const stored = (handle: string) => normalizeAlertTo(handle) ?? handle
 const same = (a: Draft, b: Draft) => stored(a.alertTo) === stored(b.alertTo) && a.alertAfterMinutes === b.alertAfterMinutes
 
 /**
- * The alert settings. The toggles save at once; the handle and the delay edit
- * a draft with one Save, like the auto-swap numbers, so a half-typed number is
- * never texted. Send test only uses the saved handle, so it waits for Save.
+ * The alert settings. Where to text comes first, since nothing else works
+ * without it. The handle and the delay edit a draft with one Save, like the
+ * auto-swap numbers, so a half-typed number is never texted; the toggles save
+ * at once. Send test only uses the saved handle, so it waits for Save, and it
+ * works before the hooks are installed so the Messages setup can be checked first.
  */
 function AlertsCard({ state, now, actions }: Props) {
   const settings = state.settings
@@ -143,30 +146,19 @@ function AlertsCard({ state, now, actions }: Props) {
   }
 
   const handle = settings.alertTo
+  const hooksInstalled = state.sessions.hooksInstalled
   const testBlocker = !handle ? 'Set a number or email first' : dirty ? 'Save first' : undefined
+  const alertsHint = !handle
+    ? 'Set the number or email above first'
+    : !hooksInstalled && !settings.alertsEnabled
+      ? 'Install the session hooks first'
+      : `iMessage to ${handle}`
 
   return (
     <div className="card panel">
-      <div className="toggle-list">
-        <Toggle
-          label="Text me when a session needs me"
-          hint={handle ? `iMessage to ${handle}` : 'Set a number or email below first'}
-          checked={settings.alertsEnabled}
-          disabled={saving || (!handle && !settings.alertsEnabled)}
-          onChange={(v) => actions.updateSettings({ alertsEnabled: v }, v ? 'Session alerts on' : 'Session alerts off')}
-        />
-        <Toggle
-          label="Only when I’m away"
-          hint="Only if the Mac has had no keyboard or mouse input since the session started waiting"
-          checked={settings.alertOnlyWhenAway}
-          disabled={saving}
-          onChange={(v) => actions.updateSettings({ alertOnlyWhenAway: v }, v ? 'Texts only when you’re away' : 'Texts whether or not you’re away')}
-        />
-      </div>
-
       <div className="field-grid">
         <label className="field field--wide">
-          <span className="field__label">iMessage to</span>
+          <span className="field__label">Send texts to</span>
           <input
             className="field__input"
             type="text"
@@ -205,7 +197,24 @@ function AlertsCard({ state, now, actions }: Props) {
         </div>
       ) : null}
 
-      <HooksRow installed actions={actions} ruled />
+      <div className="toggle-list">
+        <Toggle
+          label="Text me when a session needs me"
+          hint={alertsHint}
+          checked={settings.alertsEnabled}
+          disabled={saving || (!settings.alertsEnabled && (!handle || !hooksInstalled))}
+          onChange={(v) => actions.updateSettings({ alertsEnabled: v }, v ? 'Session alerts on' : 'Session alerts off')}
+        />
+        <Toggle
+          label="Only when I’m away"
+          hint="Only if the Mac has had no keyboard or mouse input since the session started waiting"
+          checked={settings.alertOnlyWhenAway}
+          disabled={saving}
+          onChange={(v) => actions.updateSettings({ alertOnlyWhenAway: v }, v ? 'Texts only when you’re away' : 'Texts whether or not you’re away')}
+        />
+      </div>
+
+      {hooksInstalled ? <HooksRow installed actions={actions} ruled /> : null}
     </div>
   )
 }

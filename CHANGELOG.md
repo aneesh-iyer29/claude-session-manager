@@ -16,10 +16,11 @@ All notable changes to Session Manager are recorded here. The format follows
   is working, asking a question, waiting on a permission prompt, or finished and waiting
   for you. One **Install** registers a background (async) hook script in
   `~/.claude/settings.json`; it records only the session id, folder and the question asked.
-- iMessage alerts: with **Text me when a session needs me** on, the app texts your phone
-  through Messages on this Mac once a session has waited **Text after** minutes (default 2),
-  and with **Only when I'm away** (default on) only if the Mac has had no input since the
-  session started waiting. One text per waiting spell; several sessions share a text.
+- iMessage alerts: set **Send texts to** (a phone number or Apple ID email, editable any
+  time in the Claude Code sessions panel) and turn on **Text me when a session needs me**;
+  the app texts you through Messages on this Mac once a session has waited **Text after**
+  minutes (default 2), and with **Only when I'm away** (default on) only if the Mac has had
+  no input since the session started waiting. One text per waiting spell; several sessions share a text.
   **Send test** checks the setup and triggers macOS's one-time Automation prompt. New
   settings `alertsEnabled`, `alertTo`, `alertOnlyWhenAway`, `alertAfterMinutes`.
 

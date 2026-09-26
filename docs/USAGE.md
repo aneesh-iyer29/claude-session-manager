@@ -137,11 +137,12 @@ and nothing leaves the Mac except that iMessage.
    Claude asked; prompts, tool inputs and outputs are never stored. **Remove** takes them out.
    Claude Code reads its hooks when a session starts, so sessions already open show up once
    restarted (or resumed with `claude --resume`).
-2. Enter the phone number or Apple ID email to text under **iMessage to** and Save.
-   Messages on this Mac must be signed in to iMessage. Press **Send test**: the first time,
-   macOS asks whether Session Manager may control Messages. Allow it (or later in System
-   Settings → Privacy & Security → Automation).
-3. Turn on **Text me when a session needs me**.
+2. Enter the phone number or Apple ID email to text under **Send texts to** and Save. The
+   field is always in the panel, hooks or not, so you can set or change the number at any
+   time. Messages on this Mac must be signed in to iMessage. Press **Send test**: the first
+   time, macOS asks whether Session Manager may control Messages. Allow it (or later in
+   System Settings → Privacy & Security → Automation).
+3. Turn on **Text me when a session needs me** (it needs both the number and the hooks).
 
 When a session starts waiting on you, a text goes out once it has waited **Text after (min)**
 (default 2). With **Only when I'm away** on (the default), it is sent only if the Mac has had
@@ -195,8 +196,8 @@ window hides it; quit from the menu or ⌘Q.
 | Show in Dock | on | Off = menu-bar only. |
 | Warn at | 80 | Raise the compact nudge when the active account's window nearest its swap line reaches this; a weekly window past it can take over the gauge from the session |
 | Nudge | Block once | What the Claude Code hook does with the flag |
-| Text me when a session needs me | off | Send an iMessage when a Claude Code session waits on you. Needs **iMessage to**. |
-| iMessage to | empty | Phone number or Apple ID email to text. |
+| Text me when a session needs me | off | Send an iMessage when a Claude Code session waits on you. Needs **Send texts to** and the session hooks. |
+| Send texts to | empty | Phone number or Apple ID email to text. Always editable in the Claude Code sessions panel. |
 | Only when I'm away | on | Text only if the Mac has had no input since the session started waiting. |
 | Text after (min) | 1–60, 2 | How long a session waits before the text goes out. |
 
