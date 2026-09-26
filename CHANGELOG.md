@@ -3,7 +3,7 @@
 All notable changes to Session Manager are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
-## [Unreleased]
+## [0.7.0] - 2026-09-26
 
 ### Changed
 
@@ -17,22 +17,24 @@ All notable changes to Session Manager are recorded here. The format follows
 
 ### Added
 
-- **Weekly limit** in the Auto-swap panel picks which weekly window counts toward headroom
+- **Weekly limit** (Settings → Swap lines) picks which weekly window counts toward headroom
   and the weekly swap line: *All models* (the plain weekly limit, for when Opus is the model
   you run), *Fable only* (the per-model window), or *Whichever is tighter* (the previous
   behaviour, still the default). With *All models* the Fable window is no longer projected
   from the weekly number. New setting `weeklyGate`.
 - A *Claude Code sessions* panel: every open Claude Code session on the Mac and whether it
   is working, asking a question, waiting on a permission prompt, or finished and waiting
-  for you. One **Install** registers a background (async) hook script in
-  `~/.claude/settings.json`; it records only the session id, folder and the question asked.
-- iMessage alerts: set **Send texts to** (a phone number or Apple ID email, editable any
-  time in the Claude Code sessions panel) and turn on **Text me when a session needs me**;
-  the app texts you through Messages on this Mac once a session has waited **Text after**
-  minutes (default 2), and with **Only when I'm away** (default on) only if the Mac has had
-  no input since the session started waiting. One text per waiting spell; several sessions share a text.
-  **Send test** checks the setup and triggers macOS's one-time Automation prompt. New
-  settings `alertsEnabled`, `alertTo`, `alertOnlyWhenAway`, `alertAfterMinutes`.
+  for you. One **Install** (Settings → Claude Code → Session hooks) registers a background
+  (async) hook script in `~/.claude/settings.json`; it records only the session id, folder
+  and the question asked.
+- iMessage alerts (Settings → Session alerts): set **Send texts to** (a phone number or
+  Apple ID email) and turn on **Text me when a session needs me**; the app texts you through
+  Messages on this Mac once a session has waited **Text after** minutes (default 2), and
+  with **Only when I'm away** (default on) only if the Mac has had no input since the
+  session started waiting. One text per waiting spell; several sessions share a text.
+  **Send test** checks the setup and triggers macOS's one-time Automation prompt. No other
+  software or accounts needed. New settings `alertsEnabled`, `alertTo`,
+  `alertOnlyWhenAway`, `alertAfterMinutes`.
 
 ## [0.6.0] - 2026-09-11
 
