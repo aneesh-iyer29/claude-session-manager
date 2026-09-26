@@ -6,8 +6,8 @@ that way. Taking part means following the [code of conduct](CODE_OF_CONDUCT.md).
 ## Setup
 
 ```sh
-git clone https://github.com/aneesh-iyer29/session-manager.git
-cd session-manager
+git clone https://github.com/aneesh-iyer29/claude-session-manager.git
+cd claude-session-manager
 npm install
 npm run dev          # Electron with hot reload
 npm run dev:web      # renderer only, in a browser, against the mock backend

@@ -3,6 +3,15 @@
 All notable changes to Session Manager are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow SemVer.
 
+## [Unreleased]
+
+### Changed
+
+- The repository is now `aneesh-iyer29/claude-session-manager`; old GitHub links redirect.
+  The app keeps its name, bundle id, data folder, and hook script names, so nothing on an
+  installed Mac changes. The landing page moved to
+  https://aneesh-iyer29.github.io/claude-session-manager/.
+
 ## [0.7.0] - 2026-09-26
 
 ### Changed
