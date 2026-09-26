@@ -5,6 +5,16 @@ All notable changes to Session Manager are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Settings have their own full-window view: the toolbar's **Settings** button (or ⌘,)
+  swaps the dashboard for a page with a section list (Auto-swap, Swap lines, Claude Code,
+  Session alerts, General) and every setting as a labelled row. Typed fields share one save
+  bar, and leaving with unsaved edits asks first. The dashboard keeps only status and
+  one-click actions: the Auto-swap panel is down to its summary, last decision and arm
+  switch, the sessions panel to its list and a line on texts, and the Codex panel's
+  *Hide* moved to Settings → General.
+
 ### Added
 
 - **Weekly limit** in the Auto-swap panel picks which weekly window counts toward headroom

@@ -3,11 +3,23 @@
 The user guide: every panel, setting, and file, from the user's side. For install steps see
 the [README](../README.md); for how it works underneath see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-**Contents:** [Adding accounts](#adding-accounts) · [Reading a card](#reading-a-card) ·
+**Contents:** [Settings](#settings) · [Adding accounts](#adding-accounts) · [Reading a card](#reading-a-card) ·
 [Switching manually](#switching-manually) · [Auto-swap](#auto-swap) ·
 [Live usage from Claude Code](#live-usage-from-claude-code) · [Compact nudge](#compact-nudge) ·
 [Claude Code sessions and iMessage alerts](#claude-code-sessions-and-imessage-alerts) · [Codex panel](#codex-panel) · [Menu bar](#menu-bar) · [Settings reference](#settings-reference) ·
 [Files](#files)
+
+## Settings
+
+Everything you can change lives in **Settings** (the toolbar button, or ⌘,), which takes over
+the whole window: a list of sections on the left (Auto-swap, Swap lines, Claude Code, Session
+alerts, General) and the settings on the right. **Done** or Esc goes back to the dashboard,
+which only shows status and the few one-click actions (switch, refresh, arm auto-swap).
+
+Switches save the moment you flip them. Typed fields (numbers, the phone number, the menus)
+wait for **Save** in the bar that appears at the bottom once something is edited, so a
+half-typed value never takes effect; **Revert** throws the edits away. Leaving Settings with
+unsaved edits asks whether to save or discard them.
 
 ## Adding accounts
 
@@ -51,7 +63,8 @@ the new login on their next request.
 
 ## Auto-swap
 
-Arm it in the Auto-swap panel or from the menu bar. Each poll the policy runs:
+Arm it with the switch in the dashboard's Auto-swap panel or in Settings → Auto-swap; every
+other knob below is in Settings. Each poll the policy runs:
 
 1. Accounts that are held or have unknown usage are never targets.
 2. The active account is *near limit* when its 5-hour session is at or past **5-hour swap
@@ -82,7 +95,7 @@ skipped unless you press Refresh.
 ## Live usage from Claude Code
 
 Claude Code already knows your 5-hour and weekly usage from every response it gets. Click
-**Install** on "Claude Code status line feed" in the Auto-swap panel and it hands those
+**Install** on "Status line feed" in Settings → Claude Code and it hands those
 numbers to Session Manager on every assistant message, so the active account updates
 live and the app polls Anthropic only for the Fable window (every 30 min, or every 5 once
 it is within 10 points of its swap line). Between those
@@ -103,7 +116,7 @@ A swap in the middle of a long Claude Code conversation makes the next request r
 whole context on the new account (one full uncached read, priced as a cache write). The nudge
 gets you to `/compact` first.
 
-1. In the Auto-swap panel, click **Install** on "Claude Code compact nudge". This writes
+1. In Settings → Claude Code, click **Install** on "Compact nudge". This writes
    `~/.claude/hooks/session-manager-nudge.sh` and registers it as a `UserPromptSubmit` hook in
    `~/.claude/settings.json`. Nothing else in that file is touched; **Remove** takes it back out.
 2. Set **Warn at (%)**, default 80. When the active account's gating window nearest its swap line reaches it
@@ -120,15 +133,16 @@ hook works in every Claude Code session on the machine.
 
 ## Claude Code sessions and iMessage alerts
 
-The *Claude Code sessions* panel lists every Claude Code session open on this Mac and what
+The dashboard's *Claude Code sessions* panel lists every Claude Code session open on this Mac and what
 it is doing: **Working**, **Asking a question** (Claude asked you something, or an MCP server
 wants input), **Needs permission** (a permission prompt is up), **Your turn** (it finished
 and is waiting for your next message), or **Ready** (opened, no prompt yet). With alerts on,
 Session Manager texts your phone through the Messages app on this Mac when one of them is
 waiting on you, so you know to come back while you are away. No other software is needed,
-and nothing leaves the Mac except that iMessage.
+and nothing leaves the Mac except that iMessage. Under the list, one line says whether texts
+are going out and to where.
 
-1. Click **Install** on "Claude Code session hooks". This writes
+1. In Settings → Claude Code, click **Install** on "Session hooks". This writes
    `~/.claude/hooks/session-manager-sessions.sh` and registers it in `~/.claude/settings.json`
    for the events that show where a session is (session start and end, prompts, tool calls,
    permission requests, questions, notifications, and the end of each turn). The hooks run in
@@ -137,11 +151,11 @@ and nothing leaves the Mac except that iMessage.
    Claude asked; prompts, tool inputs and outputs are never stored. **Remove** takes them out.
    Claude Code reads its hooks when a session starts, so sessions already open show up once
    restarted (or resumed with `claude --resume`).
-2. Enter the phone number or Apple ID email to text under **Send texts to** and Save. The
-   field is always in the panel, hooks or not, so you can set or change the number at any
-   time. Messages on this Mac must be signed in to iMessage. Press **Send test**: the first
-   time, macOS asks whether Session Manager may control Messages. Allow it (or later in
-   System Settings → Privacy & Security → Automation).
+2. In Settings → Session alerts, enter the phone number or Apple ID email to text under
+   **Send texts to** and Save. You can set or change it at any time, hooks or not. Messages
+   on this Mac must be signed in to iMessage. Press **Send test**: the first time, macOS asks
+   whether Session Manager may control Messages. Allow it (or later in System Settings →
+   Privacy & Security → Automation).
 3. Turn on **Text me when a session needs me** (it needs both the number and the hooks).
 
 When a session starts waiting on you, a text goes out once it has waited **Text after (min)**
@@ -163,7 +177,8 @@ spot, ignoring the 5-minute hold after a failure, with the time since the last f
 it; the toolbar's **Refresh Claude** leaves Codex alone. After `codex login`, press it to pick
 the new login up without waiting for the next poll. The app refreshes the CLI's token when it is within 30 minutes
 of expiring and writes it back. In API-key mode the CLI has no quota endpoint, so the
-panel only reports that it is configured. *Hide* in the panel header turns it off (*Show* brings it back).
+panel only reports that it is configured. Settings → General → *Codex panel* hides it (and stops
+polling Codex).
 
 ## Menu bar
 
@@ -177,6 +192,8 @@ can never change anything by accident. Clicking any row opens the window.
 window hides it; quit from the menu or ⌘Q.
 
 ## Settings reference
+
+All of these are in Settings (⌘,).
 
 | Setting | Range / default | Effect |
 | --- | --- | --- |
@@ -197,7 +214,7 @@ window hides it; quit from the menu or ⌘Q.
 | Warn at | 80 | Raise the compact nudge when the active account's window nearest its swap line reaches this; a weekly window past it can take over the gauge from the session |
 | Nudge | Block once | What the Claude Code hook does with the flag |
 | Text me when a session needs me | off | Send an iMessage when a Claude Code session waits on you. Needs **Send texts to** and the session hooks. |
-| Send texts to | empty | Phone number or Apple ID email to text. Always editable in the Claude Code sessions panel. |
+| Send texts to | empty | Phone number or Apple ID email to text. |
 | Only when I'm away | on | Text only if the Mac has had no input since the session started waiting. |
 | Text after (min) | 1–60, 2 | How long a session waits before the text goes out. |
 

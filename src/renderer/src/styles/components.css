@@ -879,12 +879,6 @@
   color: var(--warn);
 }
 
-/* A hook row that closes a card, ruled off from the settings above it. */
-.hook-row--ruled {
-  padding-top: 12px;
-  border-top: 1px solid var(--hairline);
-}
-
 /* ---- claude code sessions ------------------------------------------ */
 /* One row per session: mark, project and timer on the first line, the state
    under the project, then what it is waiting on. The timer column has a fixed
@@ -1023,11 +1017,135 @@
   color: var(--ok);
 }
 
-.sessions__last {
+/* Under the session list: whether texts are going out, with a way to Settings. */
+.sessions__status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--text-3);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* ---- settings view --------------------------------------------------- */
+/* A section list on the left, one scrolling column of setting rows on the
+   right. Rows reuse the toggle-row rules so switches and fields read as one
+   list; the save bar sticks to the bottom of the column while edits wait. */
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings__nav-title {
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.settings__nav-item {
+  padding: 6px 10px;
+  border-left: 2px solid transparent;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-3);
+  transition:
+    color 0.18s,
+    border-color 0.18s;
+}
+
+.settings__nav-item:hover {
+  color: var(--text);
+}
+
+.settings__nav-item[aria-current='true'] {
+  color: var(--text);
+  border-left-color: var(--ink);
+}
+
+.settings__content {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* Room for the focus ring on the last control. */
+  padding-bottom: 4px;
+}
+
+.settings__inner {
+  width: 100%;
+  max-width: 680px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.settings__section {
+  scroll-margin-top: 0;
+}
+
+/* The section heads are real headings for screen readers, styled as eyebrows. */
+.settings__title {
+  margin: 0;
+}
+
+.settings__intro {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings__intro code {
+  font-family: var(--mono);
   font-size: 11px;
 }
 
-.sessions__last .mono {
-  font-size: 11px;
+.setting-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.setting-row__control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field__input--num {
+  width: 88px;
+}
+
+.field__input--wide {
+  width: 240px;
+}
+
+.settings__savebar {
+  position: sticky;
+  bottom: 0;
+  max-width: 680px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--sep);
+  border-radius: var(--radius-card);
+  background: var(--surface-solid);
+}
+
+.settings__savebar-text {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
 }

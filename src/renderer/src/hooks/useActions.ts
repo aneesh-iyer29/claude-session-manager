@@ -12,29 +12,31 @@ import { useToasts } from './useToasts'
 
 export type ActionKey = string
 
+/** Every action resolves true when it succeeded and false when it failed (the reason is already toasted). */
 export interface Actions {
   /** Ids of actions currently in flight, e.g. `switch:acc_2`, `refresh`, `refresh:codex`. */
   busy: ReadonlySet<ActionKey>
   /** The Claude accounts only. */
-  refresh: () => Promise<void>
+  refresh: () => Promise<boolean>
   /** The Codex snapshot only. */
-  refreshCodex: () => Promise<void>
-  switchTo: (account: Account) => Promise<void>
-  captureActive: () => Promise<void>
-  setDisabled: (account: Account, disabled: boolean) => Promise<void>
-  setAlias: (account: Account, alias: string) => Promise<void>
-  removeAccount: (account: Account) => Promise<void>
-  updateSettings: (patch: Partial<Settings>, successMessage?: string) => Promise<void>
-  openExternal: (url: string) => Promise<void>
-  installHook: () => Promise<void>
-  uninstallHook: () => Promise<void>
-  installFeed: () => Promise<void>
-  uninstallFeed: () => Promise<void>
+  refreshCodex: () => Promise<boolean>
+  switchTo: (account: Account) => Promise<boolean>
+  captureActive: () => Promise<boolean>
+  setDisabled: (account: Account, disabled: boolean) => Promise<boolean>
+  setAlias: (account: Account, alias: string) => Promise<boolean>
+  removeAccount: (account: Account) => Promise<boolean>
+  updateSettings: (patch: Partial<Settings>, successMessage?: string) => Promise<boolean>
+  openExternal: (url: string) => Promise<boolean>
+  openDataFolder: () => Promise<boolean>
+  installHook: () => Promise<boolean>
+  uninstallHook: () => Promise<boolean>
+  installFeed: () => Promise<boolean>
+  uninstallFeed: () => Promise<boolean>
   /** Busy under `sessions-hook`. */
-  installSessionHooks: () => Promise<void>
-  uninstallSessionHooks: () => Promise<void>
+  installSessionHooks: () => Promise<boolean>
+  uninstallSessionHooks: () => Promise<boolean>
   /** Busy under `test-alert`. */
-  sendTestAlert: () => Promise<void>
+  sendTestAlert: () => Promise<boolean>
 }
 
 export function useActions(): Actions {
@@ -49,15 +51,17 @@ export function useActions(): Actions {
     setBusy(new Set(counts.current.keys()))
   }, [])
 
-  /** Wrap one API call: track busy, toast success or the error message. */
+  /** Wrap one API call: track busy, toast success or the error message. True when it succeeded. */
   const run = useCallback(
-    async (key: ActionKey, fn: () => Promise<unknown>, success?: string | ((r: unknown) => string)) => {
+    async (key: ActionKey, fn: () => Promise<unknown>, success?: string | ((r: unknown) => string)): Promise<boolean> => {
       mark(key, 1)
       try {
         const result = await fn()
         if (success) push(typeof success === 'function' ? success(result) : success)
+        return true
       } catch (err) {
         push(errorMessage(err), 'error')
+        return false
       } finally {
         mark(key, -1)
       }
@@ -93,6 +97,7 @@ export function useActions(): Actions {
       removeAccount: (a) => run(`remove:${a.id}`, () => api.removeAccount(a.id), `Removed ${displayName(a)}`),
       updateSettings: (patch, message) => run('settings', () => api.updateSettings(patch), message ?? 'Settings saved'),
       openExternal: (url) => run(`open`, () => api.openExternal(url)),
+      openDataFolder: () => run('open', () => api.openDataFolder()),
       installHook: () => run('hook', () => api.installHook(), 'Compact nudge hook installed in Claude Code'),
       uninstallHook: () => run('hook', () => api.uninstallHook(), 'Compact nudge hook removed'),
       installFeed: () => run('feed', () => api.installFeed(), 'Status line feed installed in Claude Code'),
