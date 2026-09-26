@@ -2,11 +2,12 @@
   <img src="docs/logo.png" width="128" height="128" alt="Session Manager icon">
 </p>
 
-<h1 align="center">Session Manager</h1>
+<h1 align="center">Session Manager for Claude Code</h1>
 
 <p align="center">
-  A macOS menu bar app that watches the usage limits of every Claude Code account you have<br>
-  and swaps the active login before one of them throttles you.
+  A macOS menu bar app for people who run Claude Code on more than one Claude Pro or Max account.<br>
+  It watches every account's 5-hour and weekly usage limits and switches Claude Code<br>
+  to the account with the most headroom before one of them rate-limits you.
 </p>
 
 <p align="center">
@@ -22,6 +23,7 @@
   <a href="#first-run">First run</a> ·
   <a href="#auto-swap">Auto-swap</a> ·
   <a href="docs/USAGE.md">User guide</a> ·
+  <a href="#faq">FAQ</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
@@ -150,6 +152,45 @@ Keychain writes go through `/usr/bin/security` with the secret passed on stdin, 
 | Switch fails with a lock timeout | Claude Code was refreshing its token at the same moment. Try again; the app waits up to 9 s for each lock. |
 | Login never completes | Port 54545 must be free (the redirect URI is fixed by the OAuth client). Cancel and retry, or check nothing else is listening. |
 | Codex panel says "API key mode" | The Codex CLI is using `OPENAI_API_KEY`; there is no quota to show. Log the CLI in with ChatGPT to see windows. |
+
+## FAQ
+
+### How do I use more than one Claude Code account on the same Mac?
+
+Claude Code keeps one login at a time, in the macOS Keychain. Session Manager stores a credential for each of your accounts, and a switch writes the one you pick into the Keychain (and its identity into `~/.claude.json`) under Claude Code's own lock files. Add accounts with **Capture current login** or **Log in with browser**, then press *Switch* on any card, or arm auto-swap and let it choose.
+
+### How do I stop hitting the Claude Code 5-hour limit or weekly limit?
+
+You can't raise a limit, but with more than one account you can move to one that has room. Auto-swap checks the active account every poll (or instantly, with the status line feed) and, once its 5-hour session or chosen weekly window crosses your swap line, switches to the account with the most headroom on the window that ran out. The dashboard shows every account's runway and reset time, so you can also plan by hand.
+
+### Does switching accounts interrupt a running Claude Code session?
+
+No. Open sessions keep their conversation and pick up the new login on their next request. The only cost is one re-cache of that conversation on the new account, which is why Session Manager can nudge you to run `/compact` just before a swap.
+
+### Which Claude plans does it work with?
+
+Any Claude subscription account that Claude Code signs in to through claude.ai (Pro and Max), since the 5-hour and weekly windows it reads belong to those plans. API-key usage has no such windows and is not tracked.
+
+### Can Claude Code text me when it needs an answer?
+
+Yes. Install the session hooks, add your phone number or Apple ID email, and Session Manager sends you one iMessage through the Messages app when a session is asking a question, waiting on a permission prompt, or finished, and nobody has touched the Mac for two minutes.
+
+### Does it show Codex CLI usage too?
+
+For one Codex account signed in with ChatGPT, yes: its 5-hour and weekly windows sit in the sidebar and the tray menu, read-only. Codex is never switched.
+
+### Is it safe? Where do my tokens go?
+
+Credentials stay on your Mac in owner-only files (0600 in a 0700 folder), Keychain writes pass the secret on stdin, and nothing is logged beyond email addresses. The app talks only to Anthropic's and OpenAI's own endpoints; there is no server and no telemetry. See [Data and security](#data-and-security).
+
+### Does it run on Windows or Linux?
+
+No. It depends on the macOS Keychain, the menu bar, and Messages. [claude-swap](https://github.com/realiti4/claude-swap) is a cross-platform command-line option (see below).
+
+## Similar projects
+
+- **[realiti4/claude-swap](https://github.com/realiti4/claude-swap)** is a command-line account switcher for Claude Code on macOS, Linux, and Windows, with its own auto-rotation and terminal dashboard. Session Manager's switching mechanics follow it. Choose it for a terminal workflow or another OS; choose Session Manager for a menu bar app with a visual dashboard, a Fable-aware weekly gate, session alerts over iMessage, and a Codex quota view.
+- **Menu bar usage monitors** show one account's 5-hour and weekly percentages. Session Manager shows every account side by side and acts on the numbers.
 
 ## Development
 

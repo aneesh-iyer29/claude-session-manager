@@ -1,0 +1,29 @@
+# Session Manager for Claude Code
+
+> Session Manager is a free, open-source (MIT) macOS menu bar app for people who run Claude Code on more than one Claude Pro or Max account. It shows every account's 5-hour session and weekly usage limits (including the Fable weekly window) on one dashboard and automatically switches Claude Code's login to the account with the most headroom before the active one is rate-limited. It can also text you over iMessage when a Claude Code session is waiting on you, and shows one Codex CLI account's 5-hour and weekly quota read-only.
+
+Key facts:
+
+- Platform: macOS only (Apple silicon and Intel). Electron + React + TypeScript. Unsigned DMG downloads on GitHub Releases, or build from source with Node 22.
+- How switching works: the target account's OAuth credential is written into the macOS Keychain entry Claude Code reads, and `oauthAccount` in `~/.claude.json` is updated, both under Claude Code's own lock files. Running Claude Code sessions keep their conversation and use the new login on their next request.
+- Auto-swap: when the active account's 5-hour session or chosen weekly window (all models, Fable only, or whichever is tighter) reaches its swap line (default 90% used), it switches to the account with the most headroom on that window. Margin, cooldown, and a dry-run mode prevent flapping.
+- Extras: a Claude Code status line feed for instant usage numbers, a hook that asks you to run `/compact` before a swap, and Claude Code session tracking with iMessage alerts.
+- Privacy: local only, no server, no telemetry. Credentials are stored in owner-only files. Network calls go only to Anthropic and OpenAI endpoints.
+- Not affiliated with Anthropic or OpenAI.
+
+## Docs
+
+- [README](https://github.com/aneesh-iyer29/session-manager/blob/main/README.md): what it does, install, first run, auto-swap settings, FAQ
+- [User guide](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/docs/USAGE.md): every panel, setting, and file
+- [Architecture](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/docs/ARCHITECTURE.md): modules, endpoints, the swap policy, and the switch steps
+- [Changelog](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/CHANGELOG.md): release history
+
+## Install
+
+- [Latest release](https://github.com/aneesh-iyer29/session-manager/releases/latest): download `Session.Manager-<version>-arm64.dmg` (Apple silicon) or `Session.Manager-<version>.dmg` (Intel), drag to Applications, then right-click → Open on first launch (unsigned build)
+
+## Optional
+
+- [Contributing](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/CONTRIBUTING.md): setup, ground rules, release steps
+- [AGENTS.md](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/AGENTS.md): guidance for coding agents working on the source
+- [Website](https://aneesh-iyer29.github.io/session-manager/): project landing page

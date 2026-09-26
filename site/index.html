@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Manager for Claude Code: switch accounts before you hit the usage limit</title>
+<meta name="description" content="Free, open-source macOS menu bar app that watches the 5-hour and weekly usage limits of all your Claude Pro and Max accounts and switches Claude Code to the one with the most headroom before you get rate-limited. iMessage alerts when a session needs you.">
+<meta name="keywords" content="Claude Code, switch Claude accounts, multiple Claude accounts, Claude Code usage limit, Claude Code 5-hour limit, Claude weekly limit, Claude Max, Claude Pro, rate limit, account switcher, menu bar, macOS, Codex usage">
+<meta name="author" content="Aneesh Iyer">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://aneesh-iyer29.github.io/session-manager/">
+<link rel="icon" type="image/png" href="logo.png">
+<link rel="apple-touch-icon" href="logo.png">
+<link rel="alternate" type="text/plain" title="llms.txt" href="llms.txt">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Session Manager">
+<meta property="og:title" content="Session Manager for Claude Code">
+<meta property="og:description" content="A macOS menu bar app that switches Claude Code between your Claude accounts before the 5-hour or weekly limit hits.">
+<meta property="og:url" content="https://aneesh-iyer29.github.io/session-manager/">
+<meta property="og:image" content="https://aneesh-iyer29.github.io/session-manager/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Session Manager: switch Claude Code accounts before you hit the usage limit">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Session Manager for Claude Code">
+<meta name="twitter:description" content="A macOS menu bar app that switches Claude Code between your Claude accounts before the 5-hour or weekly limit hits.">
+<meta name="twitter:image" content="https://aneesh-iyer29.github.io/session-manager/og.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://aneesh-iyer29.github.io/session-manager/#app",
+      "name": "Session Manager",
+      "alternateName": "Session Manager for Claude Code",
+      "description": "macOS menu bar app that watches the 5-hour and weekly usage limits of every Claude Code account and automatically switches Claude Code to the account with the most headroom before one is rate-limited. Includes iMessage alerts for waiting Claude Code sessions and a read-only Codex quota view.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "macOS",
+      "url": "https://aneesh-iyer29.github.io/session-manager/",
+      "downloadUrl": "https://github.com/aneesh-iyer29/session-manager/releases/latest",
+      "installUrl": "https://github.com/aneesh-iyer29/session-manager/releases/latest",
+      "screenshot": "https://aneesh-iyer29.github.io/session-manager/screenshot.png",
+      "image": "https://aneesh-iyer29.github.io/session-manager/logo.png",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "Aneesh Iyer", "url": "https://www.aneesh-iyer.com" },
+      "sameAs": ["https://github.com/aneesh-iyer29/session-manager"],
+      "keywords": "Claude Code, account switcher, usage limits, rate limit, Claude Max, Claude Pro, menu bar, macOS, Codex"
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "name": "session-manager",
+      "codeRepository": "https://github.com/aneesh-iyer29/session-manager",
+      "programmingLanguage": ["TypeScript", "React", "Electron"],
+      "license": "https://opensource.org/licenses/MIT",
+      "targetProduct": { "@id": "https://aneesh-iyer29.github.io/session-manager/#app" }
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How do I use more than one Claude Code account on the same Mac?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Claude Code keeps one login at a time, in the macOS Keychain. Session Manager stores a credential for each of your accounts and a switch writes the one you pick into the Keychain and ~/.claude.json under Claude Code's own lock files. Add accounts by capturing the current login or logging in with the browser, then switch by hand or let auto-swap choose." }
+        },
+        {
+          "@type": "Question",
+          "name": "How do I stop hitting the Claude Code 5-hour limit or weekly limit?",
+          "acceptedAnswer": { "@type": "Answer", "text": "With more than one account you can move to one that has room. Session Manager's auto-swap switches Claude Code to the account with the most headroom once the active account's 5-hour session or chosen weekly window crosses your swap line (90% used by default)." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does switching accounts interrupt a running Claude Code session?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Open sessions keep their conversation and pick up the new login on their next request. The only cost is one re-cache of the conversation on the new account, so Session Manager can prompt you to run /compact just before a swap." }
+        },
+        {
+          "@type": "Question",
+          "name": "Which Claude plans does Session Manager work with?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Any Claude subscription account that Claude Code signs in to through claude.ai (Pro and Max). API-key usage has no 5-hour or weekly windows and is not tracked." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can Claude Code text me when it needs an answer?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. With the session hooks installed, Session Manager sends one iMessage through the Messages app when a Claude Code session is asking a question, waiting on a permission prompt, or finished, and nobody has touched the Mac for two minutes." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Session Manager safe? Where do my tokens go?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Credentials stay on your Mac in owner-only files. The app talks only to Anthropic's and OpenAI's own endpoints; there is no server and no telemetry. It is open source under the MIT license." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora&family=Montserrat:wght@400;500;700&family=Space+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --text: #232323;
+    --text-2: #514e47;
+    --text-3: #6c695f;
+    --hairline: #e1ded6;
+    --rule: #c7c4bb;
+    --ink: #232323;
+    --on-ink: #fbfaf7;
+    --ink-hover: #3a3a3a;
+    --gold: #84754e;
+    --ok: #3d6b51;
+    --track: #e4e1d8;
+    --code-bg: #f3f1ec;
+    --font: 'Montserrat', -apple-system, 'Helvetica Neue', Arial, sans-serif;
+    --mono: 'Space Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --serif: 'Lora', Georgia, 'Times New Roman', serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a18;
+      --surface: #232220;
+      --text: #f3f1ec;
+      --text-2: #b8b5ab;
+      --text-3: #a6a399;
+      --hairline: #33312d;
+      --rule: #4a4740;
+      --ink: #f3f1ec;
+      --on-ink: #1b1a18;
+      --ink-hover: #dedbd3;
+      --gold: #b5a06b;
+      --ok: #6fa583;
+      --track: #33312d;
+      --code-bg: #2a2926;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 var(--font);
+    font-feature-settings: 'tnum';
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:focus-visible, summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; border-radius: 3px; }
+  code { font: 0.92em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .label {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3);
+  }
+
+  header.top { border-bottom: 1px solid var(--hairline); }
+  header.top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand img { width: 28px; height: 28px; }
+  .brand span { font: 19px var(--serif); }
+  header.top nav { margin-left: auto; display: flex; gap: 22px; }
+  header.top nav a {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    text-decoration: none; color: var(--text-2); transition: color 0.18s;
+  }
+  header.top nav a:hover { color: var(--text); }
+
+  .hero { padding: 72px 0 40px; }
+  .hero h1 {
+    font: 400 clamp(32px, 5vw, 50px)/1.12 var(--serif);
+    letter-spacing: -0.01em; margin: 14px 0 20px; max-width: 16em; text-wrap: balance;
+  }
+  .hero p.lead { font-size: 17px; line-height: 1.6; color: var(--text-2); max-width: 40em; margin: 0 0 30px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px;
+    font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    text-decoration: none; border-radius: 3px; border: 1px solid var(--ink);
+    transition: background-color 0.18s, color 0.18s, border-color 0.18s;
+  }
+  .btn.primary { background: var(--ink); color: var(--on-ink); }
+  .btn.primary:hover { background: var(--ink-hover); border-color: var(--ink-hover); }
+  .btn.secondary { background: transparent; color: var(--text); border-color: var(--rule); }
+  .btn.secondary:hover { border-color: var(--ink); }
+  .btn svg { width: 16px; height: 16px; flex: none; }
+  .meta { margin-top: 18px; font: 12px var(--mono); color: var(--text-3); }
+
+  .shot { margin: 16px 0 0; }
+  .shot img {
+    display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
+  }
+  .shot figcaption { margin-top: 10px; font-size: 13px; color: var(--text-3); }
+
+  section { padding: 64px 0 8px; }
+  section > .wrap > h2 {
+    font: 400 30px/1.2 var(--serif); margin: 10px 0 28px; letter-spacing: -0.005em;
+  }
+  .head { border-bottom: 1px solid var(--hairline); padding-bottom: 10px; }
+
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .card { background: var(--surface); border: 1px solid var(--rule); border-radius: 3px; padding: 20px 20px 18px; }
+  .card h3 { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .card p { margin: 0; font-size: 14px; color: var(--text-2); }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; counter-reset: step; }
+  .step { position: relative; padding: 4px 0 4px 24px; }
+  .step::before {
+    content: ''; position: absolute; left: 0; top: 4px; bottom: 4px; width: 4px; background: var(--gold);
+    clip-path: polygon(0 3px, 100% 0, 100% calc(100% - 0px), 0 calc(100% - 3px));
+  }
+  .step .n { font: 12px var(--mono); color: var(--gold); }
+  .step h3 { font-size: 15px; font-weight: 700; margin: 4px 0 6px; }
+  .step p { margin: 0; font-size: 14px; color: var(--text-2); }
+
+  .meter { margin: 28px 0 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 3px; padding: 18px 20px; }
+  .row { display: grid; grid-template-columns: 140px 1fr 56px; align-items: center; gap: 14px; font-size: 13px; }
+  .row + .row { margin-top: 10px; }
+  .row .bar { height: 6px; background: var(--track); border-radius: 3px; position: relative; }
+  .row .bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: var(--ok); }
+  .row .bar b { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .row .v { font: 700 13px var(--font); text-align: right; }
+  .meter p { margin: 14px 0 0; font: 12px/1.6 var(--mono); color: var(--text-3); }
+
+  ol.install { margin: 0; padding: 0; list-style: none; counter-reset: i; display: grid; gap: 14px; max-width: 46em; }
+  ol.install li { counter-increment: i; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; color: var(--text-2); }
+  ol.install li::before { content: counter(i, decimal-leading-zero); font: 12px/1.9 var(--mono); color: var(--gold); }
+  pre {
+    margin: 10px 0 0; padding: 12px 14px; background: var(--code-bg); border-radius: 3px;
+    font: 13px/1.6 var(--mono); overflow-x: auto; color: var(--text);
+  }
+  pre code { background: none; padding: 0; font: inherit; }
+
+  .faq { max-width: 50em; }
+  details { border-top: 1px solid var(--hairline); }
+  details:last-child { border-bottom: 1px solid var(--hairline); }
+  summary {
+    list-style: none; cursor: pointer; padding: 16px 28px 16px 0; font-weight: 700; font-size: 15px; position: relative;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after {
+    content: '+'; position: absolute; right: 2px; top: 14px; font: 18px var(--mono); color: var(--text-3);
+  }
+  details[open] summary::after { content: '–'; }
+  details p { margin: 0 0 18px; color: var(--text-2); font-size: 14px; }
+
+  .cta { text-align: left; padding: 72px 0 80px; }
+  .cta h2 { font: 400 30px/1.2 var(--serif); margin: 0 0 12px; }
+  .cta p { color: var(--text-2); margin: 0 0 24px; max-width: 38em; }
+
+  footer { border-top: 1px solid var(--hairline); padding: 24px 0 40px; font-size: 13px; color: var(--text-3); }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+  footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+
+  @media (max-width: 860px) {
+    .grid, .steps { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 600px) {
+    .wrap { padding: 0 16px; }
+    header.top nav a.opt { display: none; }
+    .hero { padding-top: 44px; }
+    .grid, .steps { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 118px 1fr 40px; gap: 10px; font-size: 12px; }
+    .btn { flex: 1 1 auto; justify-content: center; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./" aria-label="Session Manager home">
+      <img src="logo.png" alt="" width="28" height="28">
+      <span>Session Manager</span>
+    </a>
+    <nav aria-label="Primary">
+      <a class="opt" href="#features">Features</a>
+      <a class="opt" href="#how-it-works">How it works</a>
+      <a class="opt" href="#faq">FAQ</a>
+      <a href="https://github.com/aneesh-iyer29/session-manager">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div class="label">For Claude Code · macOS menu bar app · free and open source</div>
+      <h1>Switch Claude Code accounts before you hit the usage limit</h1>
+      <p class="lead">
+        Session Manager watches the 5-hour and weekly limits of every Claude Pro or Max account you
+        have and moves Claude Code to the one with the most headroom, automatically, before the active
+        account gets rate-limited. Running sessions keep going. It can also text you when a Claude Code
+        session is waiting on you.
+      </p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/aneesh-iyer29/session-manager/releases/latest">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M2.5 13.5h11"/></svg>
+          Download for macOS
+        </a>
+        <a class="btn secondary" href="https://github.com/aneesh-iyer29/session-manager">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.6l-3.8 2 .7-4.3-3.1-3 4.3-.6z"/></svg>
+          Star on GitHub
+        </a>
+      </div>
+      <div class="meta">MIT · Apple silicon and Intel · no account, no server, no telemetry</div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <figure class="shot">
+      <img src="screenshot.png" width="2360" height="1520"
+           alt="Session Manager dashboard: the active Claude account's headroom gauge at 79%, two standby accounts, the Codex quota panel, and the auto-swap settings">
+      <figcaption>The active account's binding window up top, standby accounts below, Codex and auto-swap on the right.</figcaption>
+    </figure>
+  </div>
+
+  <section id="features" aria-labelledby="features-h">
+    <div class="wrap">
+      <div class="label head">What it does</div>
+      <h2 id="features-h">Every Claude account's runway, on one screen</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Many Claude accounts, one dashboard</h3>
+          <p>Capture the account Claude Code is logged in with, or add more through a browser login. Each gets a gauge with its headroom and when its tightest window resets.</p>
+        </div>
+        <div class="card">
+          <h3>Automatic account switching</h3>
+          <p>When the 5-hour session or the weekly window you chose (all models, Fable, or whichever is tighter) crosses its swap line, Claude Code moves to the account with the most room.</p>
+        </div>
+        <div class="card">
+          <h3>Texts you when Claude Code needs you</h3>
+          <p>Lists open Claude Code sessions and, while you are away from the Mac, sends an iMessage when one asks a question, hits a permission prompt, or finishes.</p>
+        </div>
+        <div class="card">
+          <h3>Compact before the swap</h3>
+          <p>A small Claude Code hook asks you to run <code>/compact</code> once the active account nears its line, so a conversation moves accounts without a costly re-cache.</p>
+        </div>
+        <div class="card">
+          <h3>Codex quota, read-only</h3>
+          <p>If the Codex CLI is signed in with ChatGPT, its 5-hour and weekly windows sit in the sidebar and the menu bar.</p>
+        </div>
+        <div class="card">
+          <h3>Local only</h3>
+          <p>One user, no server, no telemetry. Credentials live in owner-only files on your Mac; the only calls go to Anthropic's and OpenAI's own APIs.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how-it-works" aria-labelledby="how-h">
+    <div class="wrap">
+      <div class="label head">How it works</div>
+      <h2 id="how-h">Session-first auto-swap</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="n">01 · WATCH</div>
+          <h3>Poll every account</h3>
+          <p>Usage refreshes every few minutes, or on every message through Claude Code's status line feed, for the 5-hour, weekly, and Fable weekly windows.</p>
+        </div>
+        <div class="step">
+          <div class="n">02 · DECIDE</div>
+          <h3>Find the binding window</h3>
+          <p>When the active account crosses a swap line, the account with the most headroom on that same window wins, if it beats the active one by the margin. A cooldown stops flapping.</p>
+        </div>
+        <div class="step">
+          <div class="n">03 · SWITCH</div>
+          <h3>Swap the login safely</h3>
+          <p>Under Claude Code's own lock files, the target credential goes into the Keychain and <code>~/.claude.json</code>. Open sessions pick it up on their next request.</p>
+        </div>
+      </div>
+      <div class="meter" role="img" aria-label="Example: the active account's 5-hour window is at 91% used, past the 90% swap line, so Session Manager switches to a standby account at 12%.">
+        <div class="row"><span>work · 5-hour</span><span class="bar"><i style="width:91%;background:var(--gold)"></i><b style="left:90%"></b></span><span class="v">91%</span></div>
+        <div class="row"><span>personal · 5-hour</span><span class="bar"><i style="width:12%"></i><b style="left:90%"></b></span><span class="v">12%</span></div>
+        <p>SWITCH — work reached its 5-hour line (91 ≥ 90); personal has 88% headroom.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" aria-labelledby="install-h">
+    <div class="wrap">
+      <div class="label head">Install</div>
+      <h2 id="install-h">Running in two minutes</h2>
+      <ol class="install">
+        <li><div>Download the DMG for your Mac from the <a href="https://github.com/aneesh-iyer29/session-manager/releases/latest">latest release</a>: <code>-arm64.dmg</code> for Apple silicon, the plain <code>.dmg</code> for Intel. Drag the app to Applications.</div></li>
+        <li><div>The build is unsigned, so open it the first time with right-click → <strong>Open</strong>, or:
+          <pre><code>xattr -dr com.apple.quarantine "/Applications/Session Manager.app"</code></pre></div></li>
+        <li><div>Sign in to Claude Code once (<code>claude</code>), then press <strong>Capture current login</strong>. Add your other accounts with <strong>Log in with browser</strong> and arm auto-swap.</div></li>
+      </ol>
+      <p style="color:var(--text-3);font-size:13px;margin:22px 0 0">Prefer to build it? <code>npm install &amp;&amp; npm run dist</code> with Node 22. Full walkthrough in the <a href="https://github.com/aneesh-iyer29/session-manager/blob/main/docs/USAGE.md">user guide</a>.</p>
+    </div>
+  </section>
+
+  <section id="faq" aria-labelledby="faq-h">
+    <div class="wrap">
+      <div class="label head">FAQ</div>
+      <h2 id="faq-h">Questions people ask</h2>
+      <div class="faq">
+        <details>
+          <summary>How do I use more than one Claude Code account on the same Mac?</summary>
+          <p>Claude Code keeps one login at a time, in the macOS Keychain. Session Manager stores a credential for each of your accounts, and a switch writes the one you pick into the Keychain (and its identity into <code>~/.claude.json</code>) under Claude Code's own lock files. Add accounts, then press Switch on any card or let auto-swap choose.</p>
+        </details>
+        <details>
+          <summary>How do I stop hitting the Claude Code 5-hour limit or weekly limit?</summary>
+          <p>You can't raise a limit, but with more than one account you can move to one that has room. Auto-swap switches to the account with the most headroom once the active account's 5-hour session or chosen weekly window crosses your swap line (90% used by default). The dashboard also shows every account's reset time, so you can plan by hand.</p>
+        </details>
+        <details>
+          <summary>Does switching accounts interrupt a running Claude Code session?</summary>
+          <p>No. Open sessions keep their conversation and pick up the new login on their next request. The only cost is one re-cache of that conversation on the new account, which is why Session Manager can nudge you to run <code>/compact</code> just before a swap.</p>
+        </details>
+        <details>
+          <summary>Which Claude plans does it work with?</summary>
+          <p>Any Claude subscription account that Claude Code signs in to through claude.ai (Pro and Max), since the 5-hour and weekly windows it reads belong to those plans. API-key usage has no such windows and is not tracked.</p>
+        </details>
+        <details>
+          <summary>Can Claude Code text me when it needs an answer?</summary>
+          <p>Yes. Install the session hooks, add your phone number or Apple ID email, and Session Manager sends you one iMessage through the Messages app when a session is asking a question, waiting on a permission prompt, or finished, and nobody has touched the Mac for two minutes.</p>
+        </details>
+        <details>
+          <summary>Is it safe? Where do my tokens go?</summary>
+          <p>Credentials stay on your Mac in owner-only files, Keychain writes pass the secret on stdin, and nothing is logged beyond email addresses. The app talks only to Anthropic's and OpenAI's own endpoints. It is MIT-licensed, so you can read every line.</p>
+        </details>
+        <details>
+          <summary>Does it run on Windows or Linux?</summary>
+          <p>No. It relies on the macOS Keychain, the menu bar, and Messages. For a cross-platform command-line switcher, see <a href="https://github.com/realiti4/claude-swap">claude-swap</a>, whose switching mechanics Session Manager follows.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <div class="cta">
+    <div class="wrap">
+      <h2>Stop waiting for a window to reset</h2>
+      <p>Session Manager is free and MIT-licensed. If it saves you a rate limit, a star on GitHub helps other Claude Code users find it.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/aneesh-iyer29/session-manager/releases/latest">Download for macOS</a>
+        <a class="btn secondary" href="https://github.com/aneesh-iyer29/session-manager">Star on GitHub</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MIT © 2026 <a href="https://www.aneesh-iyer.com">Aneesh Iyer</a>. Not affiliated with Anthropic or OpenAI.</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/aneesh-iyer29/session-manager">Source</a>
+      <a href="https://github.com/aneesh-iyer29/session-manager/releases">Releases</a>
+      <a href="https://github.com/aneesh-iyer29/session-manager/blob/main/docs/USAGE.md">User guide</a>
+      <a href="https://github.com/aneesh-iyer29/session-manager/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="llms.txt">llms.txt</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

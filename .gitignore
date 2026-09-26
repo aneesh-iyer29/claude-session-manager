@@ -7,3 +7,8 @@ dist/
 .vite/
 .eslintcache
 coverage/
+
+# Copied into site/ by the Pages workflow at deploy time
+site/logo.png
+site/screenshot.png
+site/llms.txt
