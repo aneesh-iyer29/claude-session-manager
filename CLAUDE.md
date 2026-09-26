@@ -14,6 +14,7 @@ src/preload/   contextBridge → window.swapper
 src/renderer/  React UI; src/renderer/src/mock/ = in-memory SwapperApi for browser dev
 build/         icon.icns, tray template PNGs, entitlements
 docs/          ARCHITECTURE.md (spec), DESIGN.md (UI brief), USAGE.md (user guide)
+site/          landing page for GitHub Pages (.github/workflows/pages.yml); llms.txt is the agent summary
 ```
 
 ## Where to look
