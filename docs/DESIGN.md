@@ -78,16 +78,16 @@ Spacing: 4-pt grid. Card padding 16 (hero 18, with 24 on the ruled side), gaps 1
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ ●●●   Session Manager (Lora) [AUTO-SWAP ARMED] 12 s ago [↻ REFRESH CLAUDE]│  toolbar, 1px rule
+│ ●●●  Session Manager  [ARMED] 12 s ago [↻ REFRESH CLAUDE] [≡ SETTINGS]  │  toolbar, 1px rule
 ├──────────────────────────────────────┬───────────────────────────────────┤
-│ ACTIVE ───────────────────────────── │ CODEX ─── 3 min ago ↻ REFRESH HIDE│
+│ ACTIVE ───────────────────────────── │ CODEX ──────── 3 min ago ↻ REFRESH│
 │ ┃ work  work@acme.dev   MAX  [ACTIVE]│ │ PRO · me@…   5-hour ▓▓▓░ 41%  │ │
 │ ┃  37%  HEADROOM                     │ │              Weekly ▓▓▓▓▓░ 71%│ │
-│ ┃  Fable weekly · resets in 2d 3h    │ AUTO-SWAP ─────────────────────── │
-│ ┃  ▓▓▓▓▓▓▓▓▓░░░░░│░                  │ threshold 90 · margin 10 · 5 min  │
-│ ┃  5-hour ▓▓░░ 21%  Weekly ▓▓▓░ 51%  │ STAY — work has 37% headroom      │
-│ STANDBY (2) ──────────────────────── │ Auto-swap            [■ ]          │
-│ ┌───────────────┐ ┌ ─ ─ ─ ─ ─ ─ ─ ┐  │ Dry run              [  ]          │
+│ ┃  Fable weekly · resets in 2d 3h    │ CLAUDE CODE SESSIONS ── 1 NEED YOU│
+│ ┃  ▓▓▓▓▓▓▓▓▓░░░░░│░                  │ ▪ api  ASKING A QUESTION    4 min │
+│ ┃  5-hour ▓▓░░ 21%  Weekly ▓▓▓░ 51%  │ AUTO-SWAP ────────────── SETTINGS │
+│ STANDBY (2) ──────────────────────── │ STAY — work has 37% headroom      │
+│ ┌───────────────┐ ┌ ─ ─ ─ ─ ─ ─ ─ ┐  │ Auto-swap            [■ ]         │
 │ │ personal 82%  │   alt 5% HELD OUT  │ ACTIVITY ───────────────────── 6  │
 │ │ [SWITCH]      │ └ ─ ─ ─ ─ ─ ─ ─ ┘  │ 18:42 ▪ Switched work → personal  │
 │ ┆ ADD ACCOUNT  [CAPTURE] Log in… ┆   │ 18:41 ▪ Fable weekly at 91% …     │
@@ -95,9 +95,20 @@ Spacing: 4-pt grid. Card padding 16 (hero 18, with 24 on the ruled side), gaps 1
 ```
 
 Left column (fluid, min 560): hero card, standby grid (2-up, 1-up under 960), dotted add-account
-row. Right column (320 fixed): Codex, Auto-swap, Activity; scrolls independently. Section heads
-are tracked uppercase labels over a hairline. Empty state: a dotted box with the Lora headline,
-one sentence, and the two add actions. No illustration.
+row. Right column (320 fixed): Codex, Claude Code sessions, Auto-swap (status, last decision, the
+arm switch), Activity; scrolls independently. Section heads are tracked uppercase labels over a
+hairline. Empty state: a dotted box with the Lora headline, one sentence, and the two add
+actions. No illustration.
+
+**Settings is its own view, not a column.** The dashboard answers "what is happening" and
+carries only one-click actions; every knob lives in Settings, which replaces the whole window
+under the toolbar (⌘, or the toolbar button; Done or Esc to leave, with Refresh and Settings
+giving way to Done). A 168 px section list on the left (the current one marked with a 2 px ink
+rule) and one column of settings, 680 max, on the right. Every setting is a row in the
+toggle-row idiom: bold name and one line of why on the left, the control on the right, rows
+divided by hairlines inside one card per section. Switches save on flip; typed fields share
+one sticky save bar that appears only while something is edited, and leaving with edits asks
+"Save your changes before closing?" rather than dropping them.
 
 ## Motion
 

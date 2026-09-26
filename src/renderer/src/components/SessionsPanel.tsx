@@ -1,27 +1,23 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
-import type { AppState, ClaudeSession, Settings } from '@shared/types'
-import type { Actions } from '../hooks/useActions'
+import type { AppState, ClaudeSession } from '@shared/types'
 import { formatAgo, formatClock, formatElapsed } from '../lib/format'
 import { spring } from '../lib/motion'
-import { ALERT_TO_MAX, SESSION_STATE_LABEL, normalizeAlertTo, waitingCount, waitingLabel } from '../lib/sessions'
+import { SESSION_STATE_LABEL, waitingCount, waitingLabel } from '../lib/sessions'
 import { Button } from './Button'
-import { Toggle } from './Toggle'
+import type { SettingsSection } from './SettingsView'
 
 interface Props {
   state: AppState
   now: Date
-  actions: Actions
+  onOpenSettings: (section: SettingsSection) => void
 }
 
 /**
- * Every Claude Code session the hooks have reported, and the iMessage alert
- * for when one is blocked on the user. Without the hooks the app sees no
- * sessions, so until they are installed the list is replaced by the offer to
- * install them; the alert settings stay visible either way, so the number to
- * text can be set whenever it suits.
+ * Every Claude Code session the hooks have reported, and whether texts are
+ * going out about them. Setting any of it up happens in Settings; without the
+ * hooks the app sees no sessions, so until then the panel points there.
  */
-export function SessionsPanel({ state, now, actions }: Props) {
+export function SessionsPanel({ state, now, onOpenSettings }: Props) {
   const { hooksInstalled, sessions } = state.sessions
   const waiting = waitingCount(sessions)
   return (
@@ -32,13 +28,33 @@ export function SessionsPanel({ state, now, actions }: Props) {
       </div>
 
       {hooksInstalled ? null : (
-        <div className="card panel">
-          <HooksRow installed={false} actions={actions} />
+        <div className="card hook-row">
+          <span className="toggle-row__hint">Install the session hooks to see which Claude Code sessions are working and which are waiting on you.</span>
+          <Button size="sm" variant="primary" onClick={() => onOpenSettings('claude-code')}>
+            Set up
+          </Button>
         </div>
       )}
       {hooksInstalled || sessions.length > 0 ? <SessionList sessions={sessions} now={now} /> : null}
-      <AlertsCard state={state} now={now} actions={actions} />
+      {hooksInstalled ? <AlertStatus state={state} now={now} onOpenSettings={onOpenSettings} /> : null}
     </section>
+  )
+}
+
+/** One quiet line: are texts going out, and to where. The switch and the number live in Settings. */
+function AlertStatus({ state, now, onOpenSettings }: Props) {
+  const s = state.settings
+  const last = state.sessions.lastAlertAt
+  const text = !s.alertsEnabled
+    ? 'Texts off'
+    : `Texting ${s.alertTo}${s.alertOnlyWhenAway ? ' when you’re away' : ''}${last ? ` · last ${formatAgo(last, now)}` : ''}`
+  return (
+    <div className="sessions__status">
+      <span>{text}</span>
+      <Button variant="quiet" size="sm" onClick={() => onOpenSettings('alerts')}>
+        {s.alertsEnabled ? 'Change' : 'Set up'}
+      </Button>
+    </div>
   )
 }
 
@@ -99,149 +115,5 @@ function SessionRow({ session: s, now }: { session: ClaudeSession; now: Date }) 
         </p>
       ) : null}
     </>
-  )
-}
-
-type Draft = Pick<Settings, 'alertTo' | 'alertAfterMinutes'>
-
-const pick = (s: Settings): Draft => ({ alertTo: s.alertTo, alertAfterMinutes: s.alertAfterMinutes })
-
-/** Compare handles in the stored form, so "+1 555 123 4567" equals the "+15551234567" it saves as. */
-const stored = (handle: string) => normalizeAlertTo(handle) ?? handle
-const same = (a: Draft, b: Draft) => stored(a.alertTo) === stored(b.alertTo) && a.alertAfterMinutes === b.alertAfterMinutes
-
-/**
- * The alert settings. Where to text comes first, since nothing else works
- * without it. The handle and the delay edit a draft with one Save, like the
- * auto-swap numbers, so a half-typed number is never texted; the toggles save
- * at once. Send test only uses the saved handle, so it waits for Save, and it
- * works before the hooks are installed so the Messages setup can be checked first.
- */
-function AlertsCard({ state, now, actions }: Props) {
-  const settings = state.settings
-  const [draft, setDraft] = useState<Draft>(() => pick(settings))
-  const saving = actions.busy.has('settings')
-  const testing = actions.busy.has('test-alert')
-  const dirty = !same(draft, pick(settings))
-
-  // Adopt backend changes unless the user is mid-edit; also adopt our own save
-  // once it comes back normalized, so the field shows what is stored.
-  const [seen, setSeen] = useState(settings)
-  useEffect(() => {
-    if (seen === settings) return
-    const before = pick(seen)
-    setSeen(settings)
-    if (same(draft, before) || same(draft, pick(settings))) setDraft(pick(settings))
-  }, [settings, seen, draft])
-
-  const onMinutes = (e: ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.valueAsNumber
-    setDraft((d) => ({ ...d, alertAfterMinutes: Number.isNaN(v) ? settings.alertAfterMinutes : v }))
-  }
-
-  const save = () => {
-    // The daemon refuses alerts with nowhere to send them, so clearing the handle turns them off too.
-    const clearing = draft.alertTo.trim() === '' && settings.alertsEnabled
-    return actions.updateSettings(clearing ? { ...draft, alertsEnabled: false } : draft, clearing ? 'Session alerts off' : 'Alert settings saved')
-  }
-
-  const handle = settings.alertTo
-  const hooksInstalled = state.sessions.hooksInstalled
-  const testBlocker = !handle ? 'Set a number or email first' : dirty ? 'Save first' : undefined
-  const alertsHint = !handle
-    ? 'Set the number or email above first'
-    : !hooksInstalled && !settings.alertsEnabled
-      ? 'Install the session hooks first'
-      : `iMessage to ${handle}`
-
-  return (
-    <div className="card panel">
-      <div className="field-grid">
-        <label className="field field--wide">
-          <span className="field__label">Send texts to</span>
-          <input
-            className="field__input"
-            type="text"
-            value={draft.alertTo}
-            maxLength={ALERT_TO_MAX}
-            placeholder="+1 555 123 4567 or you@icloud.com"
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            onChange={(e) => setDraft((d) => ({ ...d, alertTo: e.target.value }))}
-          />
-        </label>
-        <label className="field">
-          <span className="field__label">Text after (min)</span>
-          <input className="field__input" type="number" min={1} max={60} step={1} value={draft.alertAfterMinutes} onChange={onMinutes} />
-        </label>
-      </div>
-
-      <div className="panel__actions">
-        <Button size="sm" disabled={testing || testBlocker != null} title={testBlocker} onClick={() => actions.sendTestAlert()}>
-          {testing ? 'Sending…' : 'Send test'}
-        </Button>
-        <span className="spacer" />
-        {dirty ? (
-          <Button variant="quiet" size="sm" onClick={() => setDraft(pick(settings))}>
-            Revert
-          </Button>
-        ) : null}
-        <Button variant="primary" size="sm" disabled={!dirty || saving} onClick={save}>
-          {saving ? 'Saving…' : 'Save'}
-        </Button>
-      </div>
-      {state.sessions.lastAlertAt ? (
-        <div className="sessions__last">
-          Last text <span className="mono">{formatAgo(state.sessions.lastAlertAt, now)}</span>
-        </div>
-      ) : null}
-
-      <div className="toggle-list">
-        <Toggle
-          label="Text me when a session needs me"
-          hint={alertsHint}
-          checked={settings.alertsEnabled}
-          disabled={saving || (!settings.alertsEnabled && (!handle || !hooksInstalled))}
-          onChange={(v) => actions.updateSettings({ alertsEnabled: v }, v ? 'Session alerts on' : 'Session alerts off')}
-        />
-        <Toggle
-          label="Only when I’m away"
-          hint="Only if the Mac has had no keyboard or mouse input since the session started waiting"
-          checked={settings.alertOnlyWhenAway}
-          disabled={saving}
-          onChange={(v) => actions.updateSettings({ alertOnlyWhenAway: v }, v ? 'Texts only when you’re away' : 'Texts whether or not you’re away')}
-        />
-      </div>
-
-      {hooksInstalled ? <HooksRow installed actions={actions} ruled /> : null}
-    </div>
-  )
-}
-
-/**
- * Installing writes one hook script and registers it for the Claude Code
- * events that show a session waiting on the user; removing takes exactly that
- * back out. The same row offers either, like the feed and nudge rows.
- */
-function HooksRow({ installed, actions, ruled = false }: { installed: boolean; actions: Actions; ruled?: boolean }) {
-  const busy = actions.busy.has('sessions-hook')
-  return (
-    <div className={`hook-row${ruled ? ' hook-row--ruled' : ''}`}>
-      <div className="hook-row__text">
-        <span className="toggle-row__label">Claude Code session hooks</span>
-        <span className="toggle-row__hint">
-          {installed ? 'Installed. Sessions report here as they change.' : 'Adds hooks so Session Manager can see when a session is waiting on you.'}
-        </span>
-      </div>
-      <Button
-        size="sm"
-        variant={installed ? 'default' : 'primary'}
-        disabled={busy}
-        onClick={() => (installed ? actions.uninstallSessionHooks() : actions.installSessionHooks())}
-      >
-        {busy ? 'Working…' : installed ? 'Remove' : 'Install'}
-      </Button>
-    </div>
   )
 }

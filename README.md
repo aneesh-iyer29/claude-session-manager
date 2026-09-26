@@ -84,7 +84,9 @@ Whichever account matches the live Keychain credential is marked **active**.
 | **Hero gauge** | The active account. The big number is the headroom of its *binding window*: the 5-hour session, or a weekly window once that is past the warn line and closer to its limit than the session (the week will run out before the session does). The reset countdown sits under it and the other windows are smaller meters. |
 | **Standby cards** | Every other account with the same gauge at a smaller scale, a *Switch* button, and controls to hold it out of rotation, rename it, or remove it. |
 | **Codex** | The Codex CLI account's 5-hour and weekly windows, with its own *Refresh* in the panel header (the toolbar's *Refresh Claude* polls only the Claude accounts). In API-key mode there is no usage endpoint, so the panel only says the CLI is configured. |
-| **Auto-swap** | Arm/disarm, thresholds, margin, cooldown, strategy, dry run, and the last decision the policy made. |
+| **Claude Code sessions** | Every open Claude Code session and whether it is working or waiting on you, plus whether texts are going out. |
+| **Auto-swap** | The policy's settings in one line, the last decision it made, and the arm switch. |
+| **Settings** | Everything else, on its own full-window page (toolbar button or ⌘,): auto-swap behaviour, swap lines, the Claude Code hooks, session alerts, and general app options. |
 | **Activity** | Switches, auto-swap decisions, logins, and errors, newest first. The newest twelve show; *Show more* unfolds the rest (up to a hundred). |
 
 ## Auto-swap
@@ -109,11 +111,11 @@ A switch writes the target credential to the Keychain and updates `oauthAccount`
 
 ### Live usage without polling
 
-Install the status line feed from the Auto-swap panel and Claude Code hands the app its own rate-limit numbers on every message. The active account updates instantly and the usage endpoint is only asked about the Fable window, every 30 minutes, or every 5 once that window is within 10 points of its swap line. After a swap, status line data that still carries the previous login's numbers is recognised and ignored.
+Install the status line feed from Settings → Claude Code and Claude Code hands the app its own rate-limit numbers on every message. The active account updates instantly and the usage endpoint is only asked about the Fable window, every 30 minutes, or every 5 once that window is within 10 points of its swap line. After a swap, status line data that still carries the previous login's numbers is recognised and ignored.
 
 ### Compact before the swap
 
-Swapping mid-conversation costs one full re-cache of that conversation on the new account. Session Manager can install a small Claude Code `UserPromptSubmit` hook: when the active account reaches the warn line (default 80%), your next prompt is stopped once with "run `/compact` now", so the context is compacted before it moves. Install or remove it from the Auto-swap panel; details in the [user guide](docs/USAGE.md#compact-nudge).
+Swapping mid-conversation costs one full re-cache of that conversation on the new account. Session Manager can install a small Claude Code `UserPromptSubmit` hook: when the active account reaches the warn line (default 80%), your next prompt is stopped once with "run `/compact` now", so the context is compacted before it moves. Install or remove it in Settings → Claude Code; details in the [user guide](docs/USAGE.md#compact-nudge).
 
 ## Texts when a session needs you
 

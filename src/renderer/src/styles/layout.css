@@ -57,6 +57,12 @@
   padding: 20px;
 }
 
+/* Settings takes the whole window: a narrow section list and the settings column. */
+.main--settings {
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 32px;
+}
+
 .col {
   min-width: 0;
   min-height: 0;

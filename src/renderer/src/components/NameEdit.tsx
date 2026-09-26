@@ -4,7 +4,7 @@ import { displayName } from '../lib/format'
 
 interface Props {
   account: Account
-  onSave: (alias: string) => Promise<void>
+  onSave: (alias: string) => Promise<unknown>
 }
 
 /**

@@ -1,13 +1,11 @@
-import type { CodexState, Settings } from '@shared/types'
+import type { CodexState } from '@shared/types'
 import type { Actions } from '../hooks/useActions'
 import { formatAgo, formatPlan } from '../lib/format'
-import { Button } from './Button'
 import { MeterRow } from './Meter'
 import { RefreshButton } from './RefreshButton'
 
 interface Props {
   codex: CodexState
-  settings: Settings
   now: Date
   actions: Actions
 }
@@ -16,9 +14,10 @@ interface Props {
  * Read-only quota for the one Codex login. Nothing here switches anything.
  * The header's Refresh re-fetches only Codex, so after `codex login` the new
  * account shows up without waiting for the next poll; the toolbar's Refresh
- * leaves Codex alone.
+ * leaves Codex alone. Hiding the panel is a setting (Settings → General), and
+ * the dashboard leaves it out entirely then.
  */
-export function CodexPanel({ codex, settings, now, actions }: Props) {
+export function CodexPanel({ codex, now, actions }: Props) {
   const refreshing = actions.busy.has('refresh:codex')
   const fetchedAt = codex.usage?.fetchedAt ?? null
   return (
@@ -26,30 +25,18 @@ export function CodexPanel({ codex, settings, now, actions }: Props) {
       <div className="section__head">
         <span className="eyebrow">Codex</span>
         <div className="section__actions">
-          {settings.codexEnabled ? (
-            <>
-              {fetchedAt ? <span className="section__age">{formatAgo(fetchedAt, now)}</span> : null}
-              <RefreshButton variant="quiet" spinning={refreshing} onClick={() => actions.refreshCodex()} label="Refresh" ariaLabel="Refresh Codex usage" />
-            </>
-          ) : null}
-          <Button
-            variant="quiet"
-            size="sm"
-            onClick={() => actions.updateSettings({ codexEnabled: !settings.codexEnabled }, settings.codexEnabled ? 'Codex hidden' : 'Codex shown')}
-          >
-            {settings.codexEnabled ? 'Hide' : 'Show'}
-          </Button>
+          {fetchedAt ? <span className="section__age">{formatAgo(fetchedAt, now)}</span> : null}
+          <RefreshButton variant="quiet" spinning={refreshing} onClick={() => actions.refreshCodex()} label="Refresh" ariaLabel="Refresh Codex usage" />
         </div>
       </div>
       <div className="card">
-        <CodexBody codex={codex} enabled={settings.codexEnabled} now={now} />
+        <CodexBody codex={codex} now={now} />
       </div>
     </section>
   )
 }
 
-function CodexBody({ codex, enabled, now }: { codex: CodexState; enabled: boolean; now: Date }) {
-  if (!enabled) return <p className="card__note" style={{ marginTop: 0 }}>Hidden. Codex usage isn't polled.</p>
+function CodexBody({ codex, now }: { codex: CodexState; now: Date }) {
   if (!codex.configured)
     return (
       <p className="card__note" style={{ marginTop: 0 }}>
