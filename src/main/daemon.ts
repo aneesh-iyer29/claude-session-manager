@@ -15,6 +15,7 @@ import type {
   CodexState,
   Decision,
   LoginStatus,
+  SessionsState,
   Settings,
   TokenStatus,
   Usage,
@@ -25,7 +26,10 @@ import * as codex from './codex'
 import * as switcher from './switcher'
 import * as nudge from './nudge'
 import * as live from './liveUsage'
-import { watch, type FSWatcher } from 'node:fs'
+import * as sessions from './sessions'
+import * as attention from './attention'
+import * as imessage from './imessage'
+import { mkdirSync, watch, type FSWatcher } from 'node:fs'
 import { dataDir } from './paths'
 import * as autoswap from './autoswap'
 import { readActiveCredential, writeActiveCredential } from './keychain'
@@ -62,6 +66,12 @@ const RATE_LIMIT_BACKOFF_MS = 10 * 60_000
 /** How long a failed Codex refresh/usage call holds the next attempt off (a dead refresh token must not be retried every poll). */
 const CODEX_BACKOFF_MS = 5 * 60_000
 const LOGIN_TIMEOUT_MS = 300_000
+/** A failed iMessage is retried after this, not on every session event. */
+const ALERT_RETRY_MS = 5 * 60_000
+/** Longest the alert timer sleeps; waking to find nothing due is cheap. */
+const MAX_ALERT_SLEEP_MS = 60 * 60_000
+/** Coalesces the burst of renames one tool call's hooks produce. */
+const SESSIONS_DEBOUNCE_MS = 300
 const EVENT_LIMIT = 100
 const MAX_ALIAS_LENGTH = 64
 
@@ -74,6 +84,10 @@ export interface DaemonDeps {
   codexSnapshot?: () => Promise<CodexState>
   openUrl?: (url: string) => void | Promise<void>
   notify?: (title: string, body: string) => void
+  /** Seconds since the last keyboard or mouse input anywhere on the Mac; null when unknown. */
+  idleSeconds?: () => number | null
+  /** Send one iMessage. Rejects with a user-safe reason. */
+  sendText?: (to: string, text: string) => Promise<void>
   now?: () => Date
 }
 
@@ -122,7 +136,15 @@ function describe(err: unknown): string {
   return msg.replace(/\s+/g, ' ').slice(0, 200)
 }
 
-type BooleanSetting = 'autoswapEnabled' | 'dryRun' | 'codexEnabled' | 'notify' | 'launchAtLogin' | 'showInDock'
+type BooleanSetting =
+  | 'autoswapEnabled'
+  | 'dryRun'
+  | 'codexEnabled'
+  | 'notify'
+  | 'launchAtLogin'
+  | 'showInDock'
+  | 'alertsEnabled'
+  | 'alertOnlyWhenAway'
 
 function assertNumber(key: string, value: unknown, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -180,19 +202,47 @@ export function validateSettingsPatch(patch: Partial<Settings>, current: Setting
         if (value !== 'block' && value !== 'context') throw new Error('nudgeMode must be "block" or "context"')
         next.nudgeMode = value
         break
+      case 'weeklyGate':
+        if (value !== 'all' && value !== 'model' && value !== 'both') throw new Error('weeklyGate must be "all", "model" or "both"')
+        next.weeklyGate = value
+        break
+      case 'alertTo':
+        next.alertTo = alertHandle(value)
+        break
+      case 'alertAfterMinutes':
+        next.alertAfterMinutes = Math.round(assertNumber(key, value, 1, 60))
+        break
       case 'autoswapEnabled':
       case 'dryRun':
       case 'codexEnabled':
       case 'notify':
       case 'launchAtLogin':
       case 'showInDock':
+      case 'alertsEnabled':
+      case 'alertOnlyWhenAway':
         next[key as BooleanSetting] = assertBoolean(key, value)
         break
       default:
         throw new Error(`unknown setting "${key}"`)
     }
   }
+  if (next.alertsEnabled && !next.alertTo) throw new Error('Set a phone number or email to text first.')
   return next
+}
+
+/** The alert handle as stored: normalized, or '' to clear it. */
+function alertHandle(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('alertTo must be a string')
+  if (!value.trim()) return ''
+  const handle = imessage.normalizeHandle(value)
+  if (!handle) throw new Error("That isn't a phone number or email Messages can text.")
+  return handle
+}
+
+/** "“api”" or "3 sessions": what an alert was about, for the activity log (never the number texted). */
+function alertSubject(due: readonly attention.AlertSession[]): string {
+  const first = due[0]
+  return due.length === 1 && first ? `“${first.project}”` : `${due.length} sessions`
 }
 
 export class Daemon {
@@ -204,6 +254,8 @@ export class Daemon {
   private readonly codexSnapshot: () => Promise<CodexState>
   private readonly openUrl: (url: string) => void | Promise<void>
   private readonly notify: (title: string, body: string) => void
+  private readonly idleSeconds: () => number | null
+  private readonly sendText: (to: string, text: string) => Promise<void>
   private readonly now: () => Date
 
   private readonly emitter = new EventEmitter()
@@ -230,6 +282,23 @@ export class Daemon {
   private readonly weeklyResetAt = new Map<string, number>()
   /** The feed mtime last rejected as another account's, so that is logged once per document. */
   private rejectedFeedAt = 0
+  private sessionsWatcher: FSWatcher | null = null
+  private sessionsTimer: NodeJS.Timeout | null = null
+  /** The session list last pushed; most hook events (every tool call) leave it unchanged. */
+  private sessionsKey = ''
+  private alertTimer: NodeJS.Timeout | null = null
+  private alerting: Promise<void> | null = null
+  /**
+   * Waiting spells already dealt with, by episode key: the time they were
+   * texted, or null for ones passed over because they were already waiting
+   * when alerts came on (or the app started). In memory on purpose: a restart
+   * re-baselines instead of texting about everything still open.
+   */
+  private readonly alerted = new Map<string, string | null>()
+  private lastAlertAt: Date | null = null
+  private alertRetryAt = 0
+  /** The last send failure logged, so a dead Messages setup logs once, not every retry. */
+  private lastAlertError: string | null = null
 
   constructor(opts: DaemonOptions) {
     this.store = opts.store
@@ -241,6 +310,8 @@ export class Daemon {
     this.codexSnapshot = deps.codexSnapshot ?? (() => codex.snapshot({ fetchFn: this.fetchFn }))
     this.openUrl = deps.openUrl ?? defaultOpenUrl
     this.notify = deps.notify ?? defaultNotify
+    this.idleSeconds = deps.idleSeconds ?? (() => null)
+    this.sendText = deps.sendText ?? ((to, text) => imessage.sendIMessage(to, text))
     this.now = deps.now ?? (() => new Date())
   }
 
@@ -249,8 +320,10 @@ export class Daemon {
   /** Start polling: one poll now, then a setTimeout chain (never setInterval, so a slow poll can't pile up). */
   start(): void {
     this.watchLive()
+    this.watchSessions()
     if (this.running) return
     this.running = true
+    this.baselineAlerts()
     void this.poll(true).finally(() => this.schedule())
   }
 
@@ -259,6 +332,12 @@ export class Daemon {
     this.liveWatcher = null
     if (this.liveTimer) clearTimeout(this.liveTimer)
     this.liveTimer = null
+    this.sessionsWatcher?.close()
+    this.sessionsWatcher = null
+    if (this.sessionsTimer) clearTimeout(this.sessionsTimer)
+    this.sessionsTimer = null
+    if (this.alertTimer) clearTimeout(this.alertTimer)
+    this.alertTimer = null
     this.running = false
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
@@ -315,10 +394,13 @@ export class Daemon {
   }
 
   updateSettings(patch: Partial<Settings>): AppState {
-    const next = validateSettingsPatch(patch, this.settings())
+    const previous = this.settings()
+    const next = validateSettingsPatch(patch, previous)
     this.store.saveSettings(next)
+    if (next.alertsEnabled && !previous.alertsEnabled) this.baselineAlerts()
     this.schedule()
     this.emit()
+    void this.checkAlerts()
     return this.getState()
   }
 
@@ -355,7 +437,18 @@ export class Daemon {
       codex: this.codexState,
       nudge: { hookInstalled: nudge.isHookInstalled(), pending: nudge.readFlag() },
       liveFeed: { installed: live.isFeedInstalled(), lastAt: (() => { const f = live.readLive(dataDir(), this.now()); return f ? iso(f.at) : null })() },
+      sessions: this.sessionsState(),
       events: this.store.readEvents(EVENT_LIMIT),
+    }
+  }
+
+  private sessionsState(): SessionsState {
+    return {
+      hooksInstalled: sessions.isSessionHooksInstalled(),
+      sessions: sessions
+        .readSessions(sessions.sessionsDir(), this.now())
+        .map((s) => ({ ...s, alertedAt: this.alerted.get(attention.episodeKey(s)) ?? null })),
+      lastAlertAt: this.lastAlertAt ? iso(this.lastAlertAt) : null,
     }
   }
 
@@ -444,6 +537,7 @@ export class Daemon {
       if (includeCodex) await this.codexPoll(force)
       if (settings.autoswapEnabled) await this.guard('autoswap', () => this.runAutoswap(settings))
       await this.guard('nudge', async () => this.updateNudge(settings))
+      void this.checkAlerts()
       this.lastPollAt = now
     } catch (err) {
       try {
@@ -470,7 +564,7 @@ export class Daemon {
       const feed = this.freshFeed(acc.id)
       if (!feed) return MIN_FETCH_GAP_MS
       const liveKeys = new Set(feed.windows.map((w) => w.key))
-      const endpointOnly = autoswap.gatingWindows(usage, settings.model).filter((w) => !liveKeys.has(w.key))
+      const endpointOnly = autoswap.gatingWindows(usage, opts).filter((w) => !liveKeys.has(w.key))
       return endpointOnly.some((w) => autoswap.pointsToLine(w, opts) <= NEAR_LINE_PTS) ? MIN_FETCH_GAP_MS : LIVE_FED_FETCH_GAP_MS
     }
     const closest = autoswap.closestToLine(usage, opts)
@@ -564,7 +658,7 @@ export class Daemon {
     try {
       const raw = await claudeOauth.fetchUsage(token, this.fetchFn)
       let usage = claudeOauth.normalizeUsage(raw, settings.model)
-      const modelKey = `model:${settings.model.toLowerCase()}`
+      const modelKey = autoswap.modelKey(settings.model)
       const modelWin = usage.windows.find((w) => w.key === modelKey)
       const weeklyWin = usage.windows.find((w) => w.key === 'seven_day')
       if (modelWin && weeklyWin) this.modelAnchor.set(acc.id, { key: modelKey, model: modelWin.pct, weekly: weeklyWin.pct })
@@ -729,7 +823,10 @@ export class Daemon {
     const previous = all[acc.id]
     const liveKeys = new Set(feed.windows.map((w) => w.key))
     const anchor = this.modelAnchor.get(acc.id)
-    const liveWeekly = feed.windows.find((w) => w.key === 'seven_day')
+    // The projection assumes the account runs the per-model window's model. With
+    // only the all-models week counting, the user has said it does not, so the
+    // per-model window keeps its last real reading instead.
+    const liveWeekly = this.settings().weeklyGate === 'all' ? undefined : feed.windows.find((w) => w.key === 'seven_day')
     const kept = (previous?.windows ?? [])
       .filter((w) => !liveKeys.has(w.key))
       .map((w) => {
@@ -804,6 +901,150 @@ export class Daemon {
     this.store.appendEvent('info', 'Claude Code status line feed removed')
     this.emit()
     return this.getState()
+  }
+
+  installSessionHooks(): AppState {
+    sessions.installSessionHooks()
+    this.store.appendEvent('info', 'Claude Code session hooks installed')
+    this.watchSessions()
+    this.emit()
+    return this.getState()
+  }
+
+  uninstallSessionHooks(): AppState {
+    sessions.uninstallSessionHooks()
+    this.store.appendEvent('info', 'Claude Code session hooks removed')
+    this.emit()
+    return this.getState()
+  }
+
+  /** The Send test button. Throws the send failure as is: `sendText` rejections are user-safe. */
+  async sendTestAlert(): Promise<AppState> {
+    const to = this.settings().alertTo
+    if (!to) throw new Error('Set a phone number or email to text first.')
+    await this.sendText(to, attention.testMessage())
+    this.store.appendEvent('info', 'Test iMessage sent')
+    this.emit()
+    return this.getState()
+  }
+
+  // ----- session alerts -----
+
+  /**
+   * Follow the session hook files. Every hook event lands as a rename in this
+   * directory; when that moves a session to a new state the UI is pushed and
+   * the alert check re-run. The directory is created up front so it can be
+   * watched before the first hook fires.
+   */
+  private watchSessions(): void {
+    if (this.sessionsWatcher) return
+    try {
+      mkdirSync(sessions.sessionsDir(), { recursive: true, mode: 0o700 })
+      this.sessionsWatcher = watch(sessions.sessionsDir(), () => {
+        if (this.sessionsTimer) clearTimeout(this.sessionsTimer)
+        this.sessionsTimer = setTimeout(() => {
+          this.sessionsTimer = null
+          const key = JSON.stringify(sessions.readSessions(sessions.sessionsDir(), this.now()))
+          if (key === this.sessionsKey) return
+          this.sessionsKey = key
+          this.emit()
+          void this.checkAlerts()
+        }, SESSIONS_DEBOUNCE_MS)
+      })
+      this.sessionsWatcher.on('error', () => {
+        this.sessionsWatcher?.close()
+        this.sessionsWatcher = null
+      })
+    } catch {
+      this.sessionsWatcher = null
+    }
+  }
+
+  /**
+   * Mark every waiting spell that is already due as dealt with. Run when the
+   * app starts and when alerts are switched on, so neither texts about
+   * sessions that sat finished for hours; spells not yet due stay eligible.
+   */
+  private baselineAlerts(): void {
+    try {
+      const settings = { ...this.settings(), alertOnlyWhenAway: false }
+      const list = sessions.readSessions(sessions.sessionsDir(), this.now())
+      const plan = attention.planAlerts(list, settings, this.now(), null, new Set(this.alerted.keys()))
+      for (const s of plan.due) this.alerted.set(attention.episodeKey(s), null)
+    } catch {
+      // unreadable sessions dir: nothing to baseline
+    }
+  }
+
+  /**
+   * Text the user about sessions that have waited long enough (and, with
+   * "only when away", untouched since they started waiting). One run at a
+   * time: a send can sit behind macOS's Automation prompt for a minute.
+   * Exposed so tests can drive it without timers.
+   */
+  checkAlerts(): Promise<void> {
+    if (this.alerting) return this.alerting
+    this.alerting = this.guard('iMessage alert', () => this.runAlerts()).finally(() => {
+      this.alerting = null
+    })
+    return this.alerting
+  }
+
+  private async runAlerts(): Promise<void> {
+    if (this.alertTimer) clearTimeout(this.alertTimer)
+    this.alertTimer = null
+    const settings = this.settings()
+    if (!settings.alertsEnabled || !settings.alertTo) return
+    const now = this.now()
+    if (now.getTime() < this.alertRetryAt) return this.wakeAlerts(new Date(this.alertRetryAt))
+    const list = sessions.readSessions(sessions.sessionsDir(), now)
+    this.forgetEndedSpells(list)
+    const idle = this.idleSeconds()
+    const lastInputAt = idle === null || !Number.isFinite(idle) ? null : new Date(now.getTime() - idle * 1000)
+    const plan = attention.planAlerts(list, settings, now, lastInputAt, new Set(this.alerted.keys()))
+    if (plan.due.length > 0 && !(await this.deliver(settings.alertTo, plan.due))) return
+    if (plan.nextCheckAt) this.wakeAlerts(plan.nextCheckAt)
+  }
+
+  /** Send one text for every due spell. False (and a retry scheduled) when the send failed. */
+  private async deliver(to: string, due: readonly attention.AlertSession[]): Promise<boolean> {
+    try {
+      await this.sendText(to, attention.alertMessage(due))
+    } catch (err) {
+      this.alertRetryAt = this.now().getTime() + ALERT_RETRY_MS
+      const reason = describe(err)
+      if (reason !== this.lastAlertError) {
+        this.lastAlertError = reason
+        this.store.appendEvent('error', `iMessage alert failed: ${reason}`)
+        this.emit()
+      }
+      this.wakeAlerts(new Date(this.alertRetryAt))
+      return false
+    }
+    this.lastAlertError = null
+    this.lastAlertAt = this.now()
+    for (const s of due) this.alerted.set(attention.episodeKey(s), iso(this.lastAlertAt))
+    this.store.appendEvent('info', `Texted you: ${alertSubject(due)} ${due.length === 1 ? 'needs' : 'need'} you`)
+    this.emit()
+    return true
+  }
+
+  /** Spells whose session has moved on can never come back under the same key; drop them. */
+  private forgetEndedSpells(list: readonly sessions.SessionView[]): void {
+    const open = new Set(list.map((s) => attention.episodeKey(s)))
+    for (const key of [...this.alerted.keys()]) if (!open.has(key)) this.alerted.delete(key)
+  }
+
+  /** One timer for the next spell to come due (never setInterval); unref'd so it never holds the app open. */
+  private wakeAlerts(at: Date): void {
+    if (!this.running) return
+    if (this.alertTimer) clearTimeout(this.alertTimer)
+    const ms = Math.min(Math.max(at.getTime() - this.now().getTime(), 1000), MAX_ALERT_SLEEP_MS)
+    this.alertTimer = setTimeout(() => {
+      this.alertTimer = null
+      void this.checkAlerts()
+    }, ms)
+    this.alertTimer.unref?.()
   }
 
   installHook(): AppState {

@@ -1,8 +1,9 @@
 # Session Manager — notes for Claude Code
 
 macOS Electron + React + TypeScript app. Watches usage for many Claude Code accounts,
-auto-swaps the active login before the 5-hour session or a weekly / Fable weekly window bites, shows
-one Codex account's quota read-only. One user, no server, no telemetry.
+auto-swaps the active login before the 5-hour session or the chosen weekly window bites, shows
+one Codex account's quota read-only, and can text the user over iMessage when a Claude Code
+session is waiting on them. One user, no server, no telemetry.
 
 ## Layout
 
@@ -30,6 +31,9 @@ docs/          ARCHITECTURE.md (spec), DESIGN.md (UI brief), USAGE.md (user guid
 | Poll loop, autoswap run, login bookkeeping, notifications | `src/main/daemon.ts` |
 | Compact-nudge flag file and the Claude Code hook installer | `src/main/nudge.ts` |
 | Status line feed (live 5h/7d usage from Claude Code) and its installer | `src/main/liveUsage.ts` |
+| Claude Code session hooks, their installer, and session state | `src/main/sessions.ts` |
+| Alert policy (pure: which waiting sessions to text, the wording) | `src/main/attention.ts` |
+| Sending an iMessage through Messages via `osascript` | `src/main/imessage.ts` |
 | Window, tray, IPC registration, app lifecycle | `src/main/window.ts`, `tray.ts`, `ipc.ts`, `index.ts` |
 | Renderer state and components | `src/renderer/src/` |
 

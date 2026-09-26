@@ -4,8 +4,9 @@
  * derivation mirrors `autoswap.headroom` / `bindingWindow` so the mock produces
  * the same `Account` shape the daemon would.
  */
-import type { Account, AppState, CodexState, Settings, SwapperEvent, Usage, UsageWindow } from '@shared/types'
+import type { Account, AppState, ClaudeSession, CodexState, Settings, SwapperEvent, Usage, UsageWindow } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/types'
+import { gatingKeys } from '../lib/format'
 
 const HOUR = 3600_000
 const DAY = 24 * HOUR
@@ -137,13 +138,61 @@ export function seedEvents(now: Date): SwapperEvent[] {
   ]
 }
 
+/**
+ * A few Claude Code sessions in every state, most recent change first like the
+ * daemon sends them. One waiting spell has already been texted so the
+ * "Texted" marker and "Last text" line have something to show.
+ */
+export function seedSessions(now: Date): ClaudeSession[] {
+  const t = now.getTime()
+  const home = '/Users/aneesh'
+  return [
+    {
+      id: 'sess_web',
+      project: 'web',
+      cwd: `${home}/code/web`,
+      state: 'working',
+      since: iso(t - 40_000),
+      detail: null,
+      alertedAt: null,
+    },
+    {
+      id: 'sess_sm',
+      project: 'session-manager',
+      cwd: `${home}/Documents/GitHub/session-manager`,
+      state: 'permission',
+      since: iso(t - 70_000),
+      detail: 'Permission to use Bash',
+      alertedAt: null,
+    },
+    {
+      id: 'sess_api',
+      project: 'api',
+      cwd: `${home}/code/api`,
+      state: 'question',
+      since: iso(t - 4 * 60_000 - 10_000),
+      detail: 'Which auth method should we use? The existing session cookies, or signed JWTs issued by the gateway?',
+      alertedAt: iso(t - 2 * 60_000),
+    },
+    {
+      id: 'sess_docs',
+      project: 'docs',
+      cwd: `${home}/code/docs`,
+      state: 'done',
+      since: iso(t - 18 * 60_000),
+      detail: null,
+      alertedAt: null,
+    },
+  ]
+}
+
 export const seedSettings: Settings = { ...DEFAULT_SETTINGS, autoswapEnabled: true }
 
-/** The gating windows, the same set `autoswap.gatingWindows` uses. */
-function gating(usage: Usage | null, model: string): UsageWindow[] {
+/** The gating windows under `weeklyGate`, the same set `autoswap.gatingWindows` uses. */
+export function gating(usage: Usage | null, settings: Pick<Settings, 'model' | 'weeklyGate'>): UsageWindow[] {
   if (!usage || !usage.ok) return []
-  const key = `model:${model.toLowerCase()}`
-  return usage.windows.filter((w) => w.key === 'five_hour' || w.key === 'seven_day' || w.key === key)
+  const keys = gatingKeys(usage, settings)
+  return usage.windows.filter((w) => keys.has(w.key))
 }
 
 /**
@@ -151,8 +200,12 @@ function gating(usage: Usage | null, model: string): UsageWindow[] {
  * is past the warn line and higher than the session; the highest window when
  * there is no session.
  */
-export function toAccount(a: MockAccount, activeId: string | null, settings: Pick<Settings, 'model' | 'threshold' | 'warnPct'>): Account {
-  const windows = gating(a.usage, settings.model)
+export function toAccount(
+  a: MockAccount,
+  activeId: string | null,
+  settings: Pick<Settings, 'model' | 'weeklyGate' | 'threshold' | 'warnPct'>,
+): Account {
+  const windows = gating(a.usage, settings)
   const session = windows.find((w) => w.key === 'five_hour') ?? null
   let binding: UsageWindow | null = session
   if (session) {
@@ -183,6 +236,7 @@ export function buildState(parts: {
   lastSwitchAt: string | null
   nudge: AppState['nudge']
   liveFeed: AppState['liveFeed']
+  sessions: AppState['sessions']
 }): AppState {
   const { now, settings } = parts
   return {
@@ -200,6 +254,7 @@ export function buildState(parts: {
     codex: settings.codexEnabled ? parts.codex : { ...parts.codex, usage: null },
     nudge: parts.nudge,
     liveFeed: parts.liveFeed,
+    sessions: parts.sessions,
     events: parts.events.slice(0, 100),
   }
 }

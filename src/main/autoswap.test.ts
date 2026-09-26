@@ -46,8 +46,41 @@ describe('gating windows and headroom', () => {
     const usage = makeUsage({ five: 10, week: 20, fable: 80 })
     usage.windows.push({ key: 'model:other', label: 'Other', pct: 99, resetsAt: null })
     expect(gatingWindows(usage).map((w) => w.key)).toEqual(['five_hour', 'seven_day', 'model:fable'])
-    expect(gatingWindows(usage, 'Other').map((w) => w.key)).toEqual(['five_hour', 'seven_day', 'model:other'])
+    expect(gatingWindows(usage, { model: 'Other', weeklyGate: 'both' }).map((w) => w.key)).toEqual(['five_hour', 'seven_day', 'model:other'])
     expect(bindingWindow(usage, options({ model: 'Other' }))?.key).toBe('model:other')
+  })
+
+  it('weeklyGate picks which weekly window counts', () => {
+    const usage = makeUsage({ five: 10, week: 20, fable: 85 })
+    const keys = (weeklyGate: 'all' | 'model' | 'both') => gatingWindows(usage, { model: 'Fable', weeklyGate }).map((w) => w.key)
+    expect(keys('all')).toEqual(['five_hour', 'seven_day'])
+    expect(keys('model')).toEqual(['five_hour', 'model:fable'])
+    expect(keys('both')).toEqual(['five_hour', 'seven_day', 'model:fable'])
+    // Running Opus: Fable nearly spent but irrelevant, so the session binds and nothing is near a line.
+    const all = options({ ...SETTINGS, weeklyGate: 'all' })
+    expect(bindingWindow(usage, all)?.key).toBe('five_hour')
+    expect(nearLimit(makeUsage({ five: 10, week: 20, fable: 95 }), all)).toBeNull()
+    expect(weeklyHeadroom(usage, all)).toBe(80)
+    // `model` on an account with no per-model window falls back to the all-models week.
+    expect(gatingWindows(makeUsage({ five: 10, week: 88 }), { model: 'Fable', weeklyGate: 'model' }).map((w) => w.key)).toEqual([
+      'five_hour',
+      'seven_day',
+    ])
+  })
+
+  it('weeklyGate all swaps on the all-models week and ignores Fable', () => {
+    const settings: Partial<Settings> = { ...SETTINGS, weeklyGate: 'all' }
+    // Active: all-models week past its line. Target A has the most Fable room, B the most all-models room.
+    const accounts = [
+      acct('acc_1', makeUsage({ five: 10, week: 92, fable: 30 }), true),
+      acct('acc_2', makeUsage({ five: 10, week: 70, fable: 5 })),
+      acct('acc_3', makeUsage({ five: 10, week: 40, fable: 97 })),
+    ]
+    const d = decide(accounts, settings, NOW)
+    expect(d.action).toBe('switch')
+    expect(d.targetId).toBe('acc_3') // Fable at 97% no longer disqualifies it
+    // And a Fable window past its line on the active account no longer triggers anything.
+    expect(decide([acct('acc_1', makeUsage({ five: 10, week: 30, fable: 99 }), true), acct('acc_2', makeUsage())], settings, NOW).action).toBe('stay')
   })
 
   it('headroom is the 5-hour session unless a weekly window is past the warn line and tighter', () => {

@@ -69,6 +69,13 @@ export interface CodexState {
 
 export type Strategy = 'best' | 'consume_first'
 
+/**
+ * Which weekly window gates swapping. `all`: the all-models week (`seven_day`).
+ * `model`: the per-model week named by `Settings.model`, or the all-models week
+ * for an account that does not report one. `both`: whichever of the two is tighter.
+ */
+export type WeeklyGate = 'all' | 'model' | 'both'
+
 export interface Settings {
   autoswapEnabled: boolean
   dryRun: boolean
@@ -97,6 +104,16 @@ export interface Settings {
   warnPct: number
   /** `block`: the Claude Code hook stops the first prompt after the flag with a message; `context`: it only tells Claude. */
   nudgeMode: NudgeMode
+  /** Which weekly window counts toward headroom and the weekly swap line. Default `both`. */
+  weeklyGate: WeeklyGate
+  /** Send an iMessage when a Claude Code session is waiting on the user. Needs `alertTo`. */
+  alertsEnabled: boolean
+  /** Phone number (digits, optional leading +) or Apple ID email the alert goes to; empty until set. */
+  alertTo: string
+  /** Only text when the Mac has had no keyboard or mouse input since the session started waiting. */
+  alertOnlyWhenAway: boolean
+  /** 1-60. How long a session must have been waiting before the text goes out. */
+  alertAfterMinutes: number
 }
 
 export type NudgeMode = 'block' | 'context'
@@ -127,6 +144,39 @@ export interface NudgeState {
   /** Whether the UserPromptSubmit hook is present in ~/.claude/settings.json. */
   hookInstalled: boolean
   pending: NudgeFlag | null
+}
+
+/**
+ * What a Claude Code session is doing, derived from its latest hook events.
+ * `ready`: opened, no prompt yet. `working`: running a turn. `done`: finished
+ * its turn and waiting for the next message. `question`: asking the user
+ * (AskUserQuestion, an MCP elicitation). `permission`: waiting on a permission prompt.
+ */
+export type ClaudeSessionState = 'ready' | 'working' | 'done' | 'question' | 'permission'
+
+/** One Claude Code session seen through the session hooks. */
+export interface ClaudeSession {
+  /** Claude Code's session id. */
+  id: string
+  /** Last component of the working directory, e.g. "session-manager". */
+  project: string
+  cwd: string
+  state: ClaudeSessionState
+  /** ISO time the session entered `state`. */
+  since: string
+  /** What it is waiting on, when known: the question, or "Permission to use Bash". Short; never a prompt or tool input. */
+  detail: string | null
+  /** When this waiting spell was texted to the user, or null. */
+  alertedAt: string | null
+}
+
+export interface SessionsState {
+  /** Whether the session hooks are registered in ~/.claude/settings.json. */
+  hooksInstalled: boolean
+  /** Most recent state change first. Ended sessions and ones silent for 12 hours are dropped. */
+  sessions: ClaudeSession[]
+  /** When the last iMessage alert went out, or null. */
+  lastAlertAt: string | null
 }
 
 export type DecisionAction = 'stay' | 'switch' | 'blocked'
@@ -166,6 +216,7 @@ export interface AppState {
   codex: CodexState
   nudge: NudgeState
   liveFeed: LiveFeedState
+  sessions: SessionsState
   /** Newest first, at most 100. */
   events: SwapperEvent[]
 }
@@ -197,4 +248,9 @@ export const DEFAULT_SETTINGS: Settings = {
   showInDock: true,
   warnPct: 80,
   nudgeMode: 'block',
+  weeklyGate: 'both',
+  alertsEnabled: false,
+  alertTo: '',
+  alertOnlyWhenAway: true,
+  alertAfterMinutes: 2,
 }

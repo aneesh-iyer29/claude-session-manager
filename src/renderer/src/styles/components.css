@@ -878,3 +878,156 @@
 .card__note--warn {
   color: var(--warn);
 }
+
+/* A hook row that closes a card, ruled off from the settings above it. */
+.hook-row--ruled {
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* ---- claude code sessions ------------------------------------------ */
+/* One row per session: mark, project and timer on the first line, the state
+   under the project, then what it is waiting on. The timer column has a fixed
+   width in mono so the row never shifts as it ticks. */
+.sessions {
+  /* popLayout pins a leaving row against this box while the rest slide up. */
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sessions__empty {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.session {
+  display: grid;
+  grid-template-columns: 6px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 2px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.session:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.session:last-child {
+  padding-bottom: 0;
+}
+
+.session__mark {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--sep);
+}
+
+.session__project {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session__time {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 6ch;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.session__status {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.session__state {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.session__texted {
+  color: var(--text-3);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.session__detail {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  margin: 2px 0 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/* Gold while it is blocked on a question or a permission, ink once it has
+   finished its turn, ok while it works; a session that has not started stays muted. */
+.session--question .session__mark,
+.session--permission .session__mark {
+  background: var(--gold);
+}
+
+.session--question .session__state,
+.session--permission .session__state {
+  color: var(--gold);
+}
+
+.session--done .session__mark {
+  background: var(--ink);
+}
+
+.session--done .session__state {
+  color: var(--text);
+}
+
+.session--working .session__mark {
+  background: var(--ok);
+}
+
+.session--working .session__state {
+  color: var(--ok);
+}
+
+.sessions__last {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.sessions__last .mono {
+  font-size: 11px;
+}

@@ -7,6 +7,7 @@ import { AutoswapPanel } from './components/AutoswapPanel'
 import { CodexPanel } from './components/CodexPanel'
 import { EmptyState } from './components/EmptyState'
 import { HeroCard } from './components/HeroCard'
+import { SessionsPanel } from './components/SessionsPanel'
 import { Toasts } from './components/Toasts'
 import { Toolbar } from './components/Toolbar'
 import { useActions } from './hooks/useActions'
@@ -83,11 +84,13 @@ function Dashboard({ state }: { state: AppState }) {
           </motion.div>
         </LayoutGroup>
 
-        <aside className="col col--right">
+        {/* layoutScroll: session rows animate position inside this scrolling column. */}
+        <motion.aside className="col col--right" layoutScroll>
           <CodexPanel codex={state.codex} settings={state.settings} now={now} actions={actions} />
+          <SessionsPanel state={state} now={now} actions={actions} />
           <AutoswapPanel state={state} now={now} actions={actions} />
           <ActivityPanel events={state.events} now={now} />
-        </aside>
+        </motion.aside>
       </main>
     </motion.div>
   )

@@ -30,6 +30,11 @@ export interface Actions {
   uninstallHook: () => Promise<void>
   installFeed: () => Promise<void>
   uninstallFeed: () => Promise<void>
+  /** Busy under `sessions-hook`. */
+  installSessionHooks: () => Promise<void>
+  uninstallSessionHooks: () => Promise<void>
+  /** Busy under `test-alert`. */
+  sendTestAlert: () => Promise<void>
 }
 
 export function useActions(): Actions {
@@ -92,6 +97,9 @@ export function useActions(): Actions {
       uninstallHook: () => run('hook', () => api.uninstallHook(), 'Compact nudge hook removed'),
       installFeed: () => run('feed', () => api.installFeed(), 'Status line feed installed in Claude Code'),
       uninstallFeed: () => run('feed', () => api.uninstallFeed(), 'Status line feed removed'),
+      installSessionHooks: () => run('sessions-hook', () => api.installSessionHooks(), 'Session hooks installed in Claude Code'),
+      uninstallSessionHooks: () => run('sessions-hook', () => api.uninstallSessionHooks(), 'Session hooks removed'),
+      sendTestAlert: () => run('test-alert', () => api.sendTestAlert(), 'Test iMessage sent'),
     }
   }, [busy, run])
 }

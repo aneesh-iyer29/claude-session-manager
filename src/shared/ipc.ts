@@ -25,6 +25,9 @@ export const IPC = {
   uninstallHook: 'swapper:uninstallHook',
   installFeed: 'swapper:installFeed',
   uninstallFeed: 'swapper:uninstallFeed',
+  installSessionHooks: 'swapper:installSessionHooks',
+  uninstallSessionHooks: 'swapper:uninstallSessionHooks',
+  sendTestAlert: 'swapper:sendTestAlert',
   /** main → renderer push, payload: AppState */
   stateChanged: 'swapper:stateChanged',
 } as const
@@ -55,6 +58,11 @@ export interface SwapperApi {
   /** Register the status line script that feeds the active account's usage without polling. */
   installFeed(): Promise<AppState>
   uninstallFeed(): Promise<AppState>
+  /** Write the session hook script and register it for the events that show a session waiting on the user. */
+  installSessionHooks(): Promise<AppState>
+  uninstallSessionHooks(): Promise<AppState>
+  /** Send a test iMessage to `settings.alertTo`. Rejects with a user-safe reason (no number set, Messages not allowed, ...). */
+  sendTestAlert(): Promise<AppState>
   /** Subscribe to state pushes. Returns an unsubscribe function. */
   onState(callback: (state: AppState) => void): () => void
 }

@@ -27,6 +27,9 @@ const api: SwapperApi = {
   uninstallHook: () => ipcRenderer.invoke(IPC.uninstallHook),
   installFeed: () => ipcRenderer.invoke(IPC.installFeed),
   uninstallFeed: () => ipcRenderer.invoke(IPC.uninstallFeed),
+  installSessionHooks: () => ipcRenderer.invoke(IPC.installSessionHooks),
+  uninstallSessionHooks: () => ipcRenderer.invoke(IPC.uninstallSessionHooks),
+  sendTestAlert: () => ipcRenderer.invoke(IPC.sendTestAlert),
   onState: (callback: (state: AppState) => void) => {
     const listener = (_event: IpcRendererEvent, state: AppState): void => callback(state)
     ipcRenderer.on(IPC.stateChanged, listener)

@@ -56,6 +56,13 @@ describe('Store', () => {
     expect(store.loadSettings()).toEqual({ ...DEFAULT_SETTINGS, threshold: 50, margin: 50, cooldownSeconds: 0, pollIntervalSeconds: 15 })
     expect(normalizeSettings('garbage')).toEqual(DEFAULT_SETTINGS)
     expect(normalizeSettings({ strategy: 'consume_first', model: 'Opus' })).toMatchObject({ strategy: 'consume_first', model: 'Opus' })
+    expect(normalizeSettings({ weeklyGate: 'all' }).weeklyGate).toBe('all')
+    expect(normalizeSettings({ weeklyGate: 'opus' }).weeklyGate).toBe(DEFAULT_SETTINGS.weeklyGate)
+    expect(normalizeSettings({ alertAfterMinutes: 0 }).alertAfterMinutes).toBe(1)
+    expect(normalizeSettings({ alertAfterMinutes: 600 }).alertAfterMinutes).toBe(60)
+    // Alerts cannot be on without a handle to text.
+    expect(normalizeSettings({ alertsEnabled: true, alertTo: '  ' })).toMatchObject({ alertsEnabled: false, alertTo: '' })
+    expect(normalizeSettings({ alertsEnabled: true, alertTo: '+15551234567' })).toMatchObject({ alertsEnabled: true, alertTo: '+15551234567' })
   })
 
   it('writes credentials atomically with mode 0600', () => {

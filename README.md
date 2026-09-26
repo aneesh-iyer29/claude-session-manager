@@ -35,10 +35,11 @@
 | | |
 | --- | --- |
 | **Many Claude accounts, one dashboard** | Capture the account Claude Code is logged in with, or add more through a browser login. Each account gets a gauge showing its headroom and when its binding window resets. |
-| **Session-first auto-swap** | When the active account's 5-hour session reaches its swap line, or its weekly or Fable weekly window reaches theirs, the app switches Claude Code to the account with the most headroom on the axis that ran out. Cooldown, margin, and a dry-run mode keep it from flapping. |
+| **Session-first auto-swap** | When the active account's 5-hour session reaches its swap line, or the weekly window you chose (all models, Fable, or whichever is tighter) reaches its own, the app switches Claude Code to the account with the most headroom on the axis that ran out. Cooldown, margin, and a dry-run mode keep it from flapping. |
+| **Texts you when Claude Code needs you** | Lists your open Claude Code sessions and, while you are away from the Mac, sends an iMessage through the Messages app when one is asking a question, waiting on a permission prompt, or done and waiting for you. |
 | **One Codex account, read-only** | If the Codex CLI is logged in with ChatGPT, its 5-hour and weekly windows appear in the sidebar. |
 | **Menu bar first** | The tray item is a glance menu: a usage bar per window for every account, plus Open and Quit. Switching and settings live in the window, so the menu can never change anything by accident. |
-| **Local only** | One user, no server, no telemetry. Nothing leaves your machine except the calls to Anthropic's and OpenAI's own APIs. |
+| **Local only** | One user, no server, no telemetry. Nothing leaves your machine except the calls to Anthropic's and OpenAI's own APIs, and the iMessages you send yourself if you turn alerts on. |
 
 ## Install
 
@@ -97,7 +98,7 @@ Every poll (default 5 min; standby accounts at most every 10 min, since the usag
 | **Margin** (0–50, default 10) | A target must beat the active account by at least this much on the axis that hit: session headroom when the session did, weekly headroom when a weekly window did. Hysteresis against ping-pong. |
 | **Cooldown** (default 300 s) | Minimum time between automatic switches. |
 | **Strategy** | `best`: only switch when near limit, to the account with the most headroom. `consume_first`: prefer the account whose weekly window resets soonest, so nothing goes unused. |
-| **Fable window** | The per-model weekly window (`model:fable`) counts as a gating window alongside 5-hour and Weekly. The model name is a setting for when the gating model changes. |
+| **Weekly limit** | Which weekly window counts: *All models* (the plain weekly limit, for when you run Opus), *Fable only* (the per-model window, `model:fable`), or *Whichever is tighter* (default). The model name is a setting for when the gating model changes. |
 | **Dry run** | The policy runs and logs what it *would* do; nothing is switched. |
 
 Accounts held out of rotation, or whose usage is unknown, are never targets. If nobody qualifies the decision is *blocked* and shows up in Activity.
@@ -114,6 +115,10 @@ Install the status line feed from the Auto-swap panel and Claude Code hands the 
 
 Swapping mid-conversation costs one full re-cache of that conversation on the new account. Session Manager can install a small Claude Code `UserPromptSubmit` hook: when the active account reaches the warn line (default 80%), your next prompt is stopped once with "run `/compact` now", so the context is compacted before it moves. Install or remove it from the Auto-swap panel; details in the [user guide](docs/USAGE.md#compact-nudge).
 
+## Texts when a session needs you
+
+Install the session hooks from the *Claude Code sessions* panel and every open Claude Code session shows up with what it is doing. Enter your phone number or Apple ID email, press **Send test** (macOS asks once whether Session Manager may control Messages), and turn on **Text me when a session needs me**. When a session asks a question, hits a permission prompt, or finishes its turn, and it has waited two minutes with nobody touching the Mac, you get one iMessage from your own account. Nothing extra to install or sign up for. Details in the [user guide](docs/USAGE.md#claude-code-sessions-and-imessage-alerts).
+
 ## Menu bar and launch at login
 
 The tray item is the code-bracket mark. Click it for a glance menu with usage bars for every account and Codex, plus Open Session Manager and Quit; all management stays in the window. Closing the window hides it; quit from the menu or with ⌘Q. *Show in Dock* off makes it a pure menu-bar app.
@@ -126,6 +131,7 @@ The tray item is the code-bracket mark. Click it for a glance menu with usage ba
 | `.../accounts.json` | account metadata, no secrets |
 | `.../credentials/<id>.json` | one credential per account, file mode 0600, directory 0700 |
 | `.../usage.json`, `state.json`, `events.jsonl` | last usage, active id, activity log |
+| `.../sessions/` | one small file per Claude Code session and hook event: session id, folder, and at most the question asked (never prompts or tool output) |
 
 Keychain writes go through `/usr/bin/security` with the secret passed on stdin, never in argv. Refresh tokens are never logged; events and errors carry email addresses at most. The only network calls are to `api.anthropic.com`, `platform.claude.com`, `claude.ai` (login), `chatgpt.com`, and `auth.openai.com`. `CLAUDE_CONFIG_DIR` is honoured if you point Claude Code elsewhere (including its `.claude.json`), as is `CODEX_HOME` for the Codex CLI.
 

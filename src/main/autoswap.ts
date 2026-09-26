@@ -1,8 +1,9 @@
 /**
  * The swap policy: pure functions over normalized usage, no I/O.
  *
- * An account is *gated* by its 5-hour session window, its weekly window, and
- * the model-scoped weekly window (Fable by default) when the API reports one.
+ * An account is *gated* by its 5-hour session window and by the weekly window
+ * `weeklyGate` picks: the all-models week, the model-scoped week (Fable by
+ * default) when the API reports one, or whichever of the two is tighter.
  *
  * The 5-hour session is the window that throttles a working session, so it is
  * the primary axis: an account's headroom is its session's headroom, and a
@@ -17,7 +18,7 @@
  * weekly window did. Nothing else about "which account has more of what I am
  * out of" is meaningful.
  */
-import type { Decision, Settings, Usage, UsageWindow } from '../shared/types'
+import type { Decision, Settings, Usage, UsageWindow, WeeklyGate } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 
 export interface PolicyAccount {
@@ -30,30 +31,55 @@ export interface PolicyAccount {
 /** The settings the pure policy reads. */
 export interface PolicyOptions {
   model: string
+  weeklyGate: WeeklyGate
   fiveHourThreshold: number
   threshold: number
   warnPct: number
 }
 
+/** Which windows gate an account: the per-model window's name and which weekly window counts. */
+export type Gate = Pick<PolicyOptions, 'model' | 'weeklyGate'>
+
 export const FIVE_HOUR = 'five_hour'
+export const SEVEN_DAY = 'seven_day'
+const DEFAULT_GATE: Gate = { model: DEFAULT_SETTINGS.model, weeklyGate: DEFAULT_SETTINGS.weeklyGate }
 
 export function options(settings: Partial<Settings>): PolicyOptions {
   const cfg: Settings = { ...DEFAULT_SETTINGS, ...settings }
-  return { model: cfg.model, fiveHourThreshold: cfg.fiveHourThreshold, threshold: cfg.threshold, warnPct: cfg.warnPct }
+  return {
+    model: cfg.model,
+    weeklyGate: cfg.weeklyGate,
+    fiveHourThreshold: cfg.fiveHourThreshold,
+    threshold: cfg.threshold,
+    warnPct: cfg.warnPct,
+  }
 }
 
+export function modelKey(model: string): string {
+  return `model:${model.toLowerCase()}`
+}
+
+const usable = (w: UsageWindow | null | undefined): w is UsageWindow =>
+  !!w && typeof w.pct === 'number' && Number.isFinite(w.pct)
+
 /**
- * The windows that can block an account: 5h, weekly, and `model:<model>` if
- * present. A failed poll keeps the last known windows (with `ok: false`), and
- * those still count: stale numbers beat no numbers for both the gauge and the
- * policy, and `fetchedAt` tells the UI how old they are.
+ * The windows that can block an account: the 5-hour session plus the weekly
+ * window(s) `weeklyGate` picks. `model` falls back to the all-models week for
+ * an account that reports no per-model window, so choosing it never leaves an
+ * account with no weekly limit at all. A failed poll keeps the last known
+ * windows (with `ok: false`), and those still count: stale numbers beat no
+ * numbers for both the gauge and the policy, and `fetchedAt` tells the UI how
+ * old they are.
  */
-export function gatingWindows(usage: Usage | null | undefined, model = 'Fable'): UsageWindow[] {
+export function gatingWindows(usage: Usage | null | undefined, gate: Gate = DEFAULT_GATE): UsageWindow[] {
   if (!usage) return []
-  const keys = new Set([FIVE_HOUR, 'seven_day', `model:${model.toLowerCase()}`])
-  return (usage.windows ?? []).filter(
-    (w) => w && keys.has(w.key) && typeof w.pct === 'number' && Number.isFinite(w.pct),
-  )
+  const windows = (usage.windows ?? []).filter(usable)
+  const perModel = modelKey(gate.model)
+  const hasModel = windows.some((w) => w.key === perModel)
+  const keys = new Set([FIVE_HOUR])
+  if (gate.weeklyGate !== 'model' || !hasModel) keys.add(SEVEN_DAY)
+  if (gate.weeklyGate !== 'all') keys.add(perModel)
+  return windows.filter((w) => keys.has(w.key))
 }
 
 /** The swap line for a window: the session has its own; every weekly-scale window shares `threshold`. */
@@ -76,7 +102,7 @@ function highest(windows: UsageWindow[]): UsageWindow | null {
  * one) the highest window wins.
  */
 export function bindingWindow(usage: Usage | null | undefined, opts: PolicyOptions): UsageWindow | null {
-  const windows = gatingWindows(usage, opts.model)
+  const windows = gatingWindows(usage, opts)
   const session = windows.find((w) => w.key === FIVE_HOUR)
   if (!session) return highest(windows)
   const gate = Math.min(opts.warnPct, opts.threshold)
@@ -94,21 +120,21 @@ export function headroom(usage: Usage | null | undefined, opts: PolicyOptions): 
 }
 
 /** 100 - max pct over every gating window: runway over all limits at once. */
-export function overallHeadroom(usage: Usage | null | undefined, model = 'Fable'): number | null {
-  const h = highest(gatingWindows(usage, model))
+export function overallHeadroom(usage: Usage | null | undefined, gate: Gate = DEFAULT_GATE): number | null {
+  const h = highest(gatingWindows(usage, gate))
   return h === null ? null : round1(100 - h.pct)
 }
 
 /** Headroom of the 5-hour session alone; the overall headroom when there is no session window. */
-export function sessionHeadroom(usage: Usage | null | undefined, model = 'Fable'): number | null {
-  const session = gatingWindows(usage, model).find((w) => w.key === FIVE_HOUR)
-  return session ? round1(100 - session.pct) : overallHeadroom(usage, model)
+export function sessionHeadroom(usage: Usage | null | undefined, gate: Gate = DEFAULT_GATE): number | null {
+  const session = gatingWindows(usage, gate).find((w) => w.key === FIVE_HOUR)
+  return session ? round1(100 - session.pct) : overallHeadroom(usage, gate)
 }
 
 /** Headroom of the tightest weekly-scale window; the overall headroom when there is none. */
-export function weeklyHeadroom(usage: Usage | null | undefined, model = 'Fable'): number | null {
-  const h = highest(gatingWindows(usage, model).filter((w) => w.key !== FIVE_HOUR))
-  return h ? round1(100 - h.pct) : overallHeadroom(usage, model)
+export function weeklyHeadroom(usage: Usage | null | undefined, gate: Gate = DEFAULT_GATE): number | null {
+  const h = highest(gatingWindows(usage, gate).filter((w) => w.key !== FIVE_HOUR))
+  return h ? round1(100 - h.pct) : overallHeadroom(usage, gate)
 }
 
 /**
@@ -118,7 +144,7 @@ export function weeklyHeadroom(usage: Usage | null | undefined, model = 'Fable')
 export function nearLimit(usage: Usage | null | undefined, opts: PolicyOptions): UsageWindow | null {
   let worst: UsageWindow | null = null
   let worstOver = -Infinity
-  for (const w of gatingWindows(usage, opts.model)) {
+  for (const w of gatingWindows(usage, opts)) {
     const over = w.pct - swapLineFor(w.key, opts)
     if (over >= 0 && over > worstOver) {
       worst = w
@@ -136,7 +162,7 @@ export function nearLimit(usage: Usage | null | undefined, opts: PolicyOptions):
 export function closestToLine(usage: Usage | null | undefined, opts: PolicyOptions): UsageWindow | null {
   let best: UsageWindow | null = null
   let bestLeft = Infinity
-  for (const w of gatingWindows(usage, opts.model)) {
+  for (const w of gatingWindows(usage, opts)) {
     const left = swapLineFor(w.key, opts) - w.pct
     if (left < bestLeft) {
       best = w
@@ -158,9 +184,9 @@ function parseIso(value: string | null | undefined): Date | null {
 }
 
 /** Soonest reset among the weekly-scale gating windows (used by `consume_first`). */
-export function weeklyReset(usage: Usage | null | undefined, model = 'Fable'): Date | null {
+export function weeklyReset(usage: Usage | null | undefined, gate: Gate = DEFAULT_GATE): Date | null {
   let soonest: Date | null = null
-  for (const w of gatingWindows(usage, model)) {
+  for (const w of gatingWindows(usage, gate)) {
     if (w.key === FIVE_HOUR) continue
     const reset = parseIso(w.resetsAt)
     if (reset && (soonest === null || reset < soonest)) soonest = reset
@@ -196,8 +222,8 @@ export function decide(
   // The axis targets are compared on: what the active account is out of. With
   // nothing hit, only consume_first switches, and that is about the week.
   const onSession = hit !== null && hit.key === FIVE_HOUR
-  const primary = (a: PolicyAccount): number => (onSession ? sessionHeadroom : weeklyHeadroom)(a.usage, opts.model) ?? 0
-  const secondary = (a: PolicyAccount): number => (onSession ? weeklyHeadroom : sessionHeadroom)(a.usage, opts.model) ?? 0
+  const primary = (a: PolicyAccount): number => (onSession ? sessionHeadroom : weeklyHeadroom)(a.usage, opts) ?? 0
+  const secondary = (a: PolicyAccount): number => (onSession ? weeklyHeadroom : sessionHeadroom)(a.usage, opts) ?? 0
   const activePrimary = primary(active)
   const candidates = accounts.filter(
     (a) =>
@@ -235,7 +261,7 @@ export function decide(
   } else if (cfg.strategy === 'consume_first') {
     let soonest: { reset: Date; account: PolicyAccount } | null = null
     for (const a of candidates) {
-      const reset = weeklyReset(a.usage, opts.model)
+      const reset = weeklyReset(a.usage, opts)
       if (reset && (soonest === null || reset < soonest.reset)) soonest = { reset, account: a }
     }
     if (!soonest) return stay(`${activeBinding.key} at ${pct0(activeBinding.pct)}%; nothing to consume`)

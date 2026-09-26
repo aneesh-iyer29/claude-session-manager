@@ -4,7 +4,7 @@
  * Keychain is a variable behind readActive/writeActive, and every HTTP call goes
  * to a scripted fetch. The real store, switcher, autoswap and claudeOauth run.
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -52,6 +52,12 @@ interface Harness {
   refreshes: number
   clock: { now: Date }
   codexCalls: number
+  /** iMessages "sent" through the injected sendText. */
+  texts: Array<{ to: string; text: string }>
+  /** Seconds since the last input; null when unknown. */
+  idle: { seconds: number | null }
+  /** When set, sendText rejects with this message. */
+  sendError: { message: string | null }
 }
 
 const CODEX: CodexState = { configured: true, mode: 'chatgpt', email: 'me@example.com', plan: 'pro', usage: null }
@@ -102,6 +108,9 @@ function harness(opts: { autoswap?: boolean; cred2?: string } = {}): Harness {
     refreshes: 0,
     clock: { now: new Date('2026-06-01T12:00:00Z') },
     codexCalls: 0,
+    texts: [],
+    idle: { seconds: 3600 },
+    sendError: { message: null },
   }
 
   const fetchFn: typeof fetch = async (input, init) => {
@@ -136,6 +145,11 @@ function harness(opts: { autoswap?: boolean; cred2?: string } = {}): Harness {
       },
       openUrl: () => undefined,
       notify: () => undefined,
+      idleSeconds: () => h.idle.seconds,
+      sendText: async (to, text) => {
+        if (h.sendError.message) throw new Error(h.sendError.message)
+        h.texts.push({ to, text })
+      },
       now: () => h.clock.now,
     },
   })
@@ -624,6 +638,140 @@ describe('settings', () => {
     expect(() => h.daemon.updateSettings({ bogus: 1 } as Partial<import('../shared/types').Settings>)).toThrow(/unknown setting/)
     // Nothing from the failed patches leaked into the store.
     expect(h.store.loadSettings().threshold).toBe(85)
+  })
+
+  it('validates the weekly gate and the alert settings', () => {
+    const h = harness()
+    expect(h.daemon.updateSettings({ weeklyGate: 'all' }).settings.weeklyGate).toBe('all')
+    expect(() => h.daemon.updateSettings({ weeklyGate: 'opus' as 'all' })).toThrow(/weeklyGate/)
+    // Alerts need somewhere to go.
+    expect(() => h.daemon.updateSettings({ alertsEnabled: true })).toThrow(/phone number or email/)
+    expect(() => h.daemon.updateSettings({ alertTo: 'not a number' })).toThrow(/isn't a phone number/)
+    const state = h.daemon.updateSettings({ alertTo: '+1 (555) 123-4567', alertsEnabled: true, alertAfterMinutes: 5 })
+    expect(state.settings).toMatchObject({ alertTo: '+15551234567', alertsEnabled: true, alertAfterMinutes: 5 })
+    expect(() => h.daemon.updateSettings({ alertTo: '' })).toThrow(/phone number or email/) // still enabled
+    expect(() => h.daemon.updateSettings({ alertAfterMinutes: 0 })).toThrow(/alertAfterMinutes/)
+    expect(h.daemon.updateSettings({ alertsEnabled: false, alertTo: '' }).settings.alertTo).toBe('')
+  })
+})
+
+describe('weekly gate', () => {
+  it('stops projecting the Fable window when only the all-models week counts', async () => {
+    const h = harness()
+    h.store.saveSettings({ ...h.store.loadSettings(), weeklyGate: 'all' })
+    const home = process.env.SESSION_MANAGER_HOME as string
+    const feed = (weekly: number) =>
+      writeFileSync(join(home, 'statusline.json'), JSON.stringify({ rate_limits: { five_hour: { used_percentage: 50, resets_at: 1893456000 }, seven_day: { used_percentage: weekly, resets_at: 1893542400 } } }))
+    feed(20)
+    await h.daemon.refresh()
+    h.clock.now = new Date('2026-06-01T12:03:00Z')
+    feed(25)
+    const state = await h.daemon.refresh(false)
+    const fable = state.accounts.find((a) => a.id === 'acc_1')!.usage!.windows.find((w) => w.key === 'model:fable')!
+    expect(fable.pct).toBe(30) // the last real reading, not 30 + 2 × 5
+    expect(fable.estimated).toBeUndefined()
+  })
+})
+
+describe('session alerts', () => {
+  const T0 = new Date('2026-06-01T12:00:00Z')
+
+  /** One hook file as the session hook script writes it, stamped `at` like the real rename. */
+  function hookEvent(id: string, event: string, at: Date, extra: Record<string, string> = {}): void {
+    const dirPath = join(process.env.SESSION_MANAGER_HOME as string, 'sessions')
+    mkdirSync(dirPath, { recursive: true })
+    const file = join(dirPath, `${id}.${event}.json`)
+    const body = { event, session_id: id, cwd: '/Users/me/code/api', tool_name: '', notification_type: '', message: '', ...extra }
+    writeFileSync(file, JSON.stringify(body))
+    utimesSync(file, at, at)
+  }
+
+  /** Turn alerts on and let the check that kicks off settle, so the next check starts fresh. */
+  async function armed(h: Harness, extra: Partial<import('../shared/types').Settings> = {}): Promise<void> {
+    h.daemon.updateSettings({ alertTo: 'me@icloud.com', alertsEnabled: true, alertAfterMinutes: 2, ...extra })
+    await h.daemon.checkAlerts()
+  }
+
+  it('texts once when a session has been asking a question with the Mac untouched', async () => {
+    const h = harness()
+    await armed(h)
+    hookEvent('s1', 'PreToolUse', T0, { tool_name: 'AskUserQuestion', message: 'Which auth method?' })
+    h.clock.now = new Date(T0.getTime() + 60_000)
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(0) // not waiting long enough yet
+
+    h.clock.now = new Date(T0.getTime() + 3 * 60_000)
+    h.idle.seconds = 3 * 60 + 5 // last input just before it started asking
+    await h.daemon.checkAlerts()
+    expect(h.texts).toEqual([{ to: 'me@icloud.com', text: expect.stringContaining('“api” is asking you a question: Which auth method?') }])
+
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(1) // one text per waiting spell
+    const state = h.daemon.getState()
+    expect(state.sessions.sessions[0]).toMatchObject({ id: 's1', state: 'question', project: 'api' })
+    expect(state.sessions.sessions[0]?.alertedAt).not.toBeNull()
+    expect(state.sessions.lastAlertAt).not.toBeNull()
+    expect(state.events[0]?.message).toBe('Texted you: “api” needs you')
+    expect(JSON.stringify(state.events)).not.toContain('icloud')
+  })
+
+  it('stays quiet when the user touched the Mac after the session started waiting', async () => {
+    const h = harness()
+    await armed(h)
+    hookEvent('s1', 'Stop', T0)
+    h.clock.now = new Date(T0.getTime() + 10 * 60_000)
+    h.idle.seconds = 30
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(0)
+    // With "only when away" off it texts anyway.
+    h.daemon.updateSettings({ alertOnlyWhenAway: false })
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(1)
+    expect(h.texts[0]?.text).toContain('“api” finished and is waiting for your next message')
+  })
+
+  it('does not text about spells already waiting when alerts come on', async () => {
+    const h = harness()
+    hookEvent('s1', 'Stop', T0)
+    h.clock.now = new Date(T0.getTime() + 30 * 60_000)
+    await armed(h, { alertOnlyWhenAway: false })
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(0)
+    // A new spell after that is fair game.
+    hookEvent('s1', 'UserPromptSubmit', new Date(h.clock.now.getTime() + 1000))
+    hookEvent('s1', 'PermissionRequest', new Date(h.clock.now.getTime() + 2000), { tool_name: 'Bash' })
+    h.clock.now = new Date(h.clock.now.getTime() + 5 * 60_000)
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(1)
+    expect(h.texts[0]?.text).toContain('“api” is waiting for your permission (Permission to use Bash)')
+  })
+
+  it('logs a failed send once and retries later instead of on every check', async () => {
+    const h = harness()
+    await armed(h)
+    hookEvent('s1', 'PreToolUse', T0, { tool_name: 'AskUserQuestion', message: 'Ship it?' })
+    h.clock.now = new Date(T0.getTime() + 3 * 60_000)
+    h.sendError.message = "Session Manager isn't allowed to control Messages."
+    await h.daemon.checkAlerts()
+    await h.daemon.checkAlerts()
+    const errors = h.daemon.getState().events.filter((e) => e.kind === 'error')
+    expect(errors).toHaveLength(1)
+    expect(errors[0]?.message).toContain('iMessage alert failed')
+    h.sendError.message = null
+    h.clock.now = new Date(h.clock.now.getTime() + 60_000)
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(0) // still inside the retry back-off
+    h.clock.now = new Date(h.clock.now.getTime() + 5 * 60_000)
+    await h.daemon.checkAlerts()
+    expect(h.texts).toHaveLength(1)
+  })
+
+  it('sends a test text and refuses without a handle', async () => {
+    const h = harness()
+    await expect(h.daemon.sendTestAlert()).rejects.toThrow(/phone number or email/)
+    h.daemon.updateSettings({ alertTo: '+15551234567' })
+    await h.daemon.sendTestAlert()
+    expect(h.texts).toEqual([{ to: '+15551234567', text: expect.stringContaining('Session Manager test') }])
   })
 })
 

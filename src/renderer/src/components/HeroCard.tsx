@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
 import type { Account, NudgeFlag, Settings } from '@shared/types'
 import type { Actions } from '../hooks/useActions'
-import { formatClock, formatPlan, secondaryWindows, swapLineFor } from '../lib/format'
+import { formatClock, formatPlan, gatingSwapLine, secondaryWindows } from '../lib/format'
 import { spring } from '../lib/motion'
 import { Button } from './Button'
 import { Gauge } from './Gauge'
@@ -51,7 +51,7 @@ export function HeroCard({ account, settings, now, actions, nudge = null }: Prop
       {secondary.length > 0 ? (
         <div className="meter-list">
           {secondary.map((w) => (
-            <MeterRow key={w.key} window={w} now={now} threshold={swapLineFor(w.key, settings)} />
+            <MeterRow key={w.key} window={w} now={now} threshold={gatingSwapLine(w.key, usage, settings)} />
           ))}
         </div>
       ) : null}

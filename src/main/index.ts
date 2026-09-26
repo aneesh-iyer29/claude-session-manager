@@ -3,7 +3,7 @@
  * IPC together. Everything with behaviour lives in the modules it imports; this
  * file only decides the order things start in and how the app quits.
  */
-import { BrowserWindow, Notification, app, shell } from 'electron'
+import { BrowserWindow, Notification, app, powerMonitor, shell } from 'electron'
 import { writeFileSync } from 'node:fs'
 import { Daemon } from './daemon'
 import { broadcastState, registerIpc } from './ipc'
@@ -49,7 +49,8 @@ function main(): void {
   const daemon = new Daemon({
     store,
     version: app.getVersion(),
-    deps: { openUrl: (url) => void shell.openExternal(url), notify },
+    // Idle time decides whether the user is away when a session starts waiting on them.
+    deps: { openUrl: (url) => void shell.openExternal(url), notify, idleSeconds: () => powerMonitor.getSystemIdleTime() },
   })
 
   const trayActions = { open: showWindow, quit: () => app.quit() }

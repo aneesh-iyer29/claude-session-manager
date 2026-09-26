@@ -26,6 +26,11 @@ const SETTING_KEYS: ReadonlySet<string> = new Set([
   'showInDock',
   'warnPct',
   'nudgeMode',
+  'weeklyGate',
+  'alertsEnabled',
+  'alertTo',
+  'alertOnlyWhenAway',
+  'alertAfterMinutes',
 ])
 
 function str(value: unknown, name: string): string {
@@ -92,6 +97,9 @@ export function registerIpc(daemon: Daemon): void {
   handle(IPC.uninstallHook, () => daemon.uninstallHook())
   handle(IPC.installFeed, () => daemon.installFeed())
   handle(IPC.uninstallFeed, () => daemon.uninstallFeed())
+  handle(IPC.installSessionHooks, () => daemon.installSessionHooks())
+  handle(IPC.uninstallSessionHooks, () => daemon.uninstallSessionHooks())
+  handle(IPC.sendTestAlert, () => daemon.sendTestAlert())
 }
 
 /** Push a state snapshot to every live window; the renderer never polls. */
