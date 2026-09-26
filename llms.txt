@@ -13,17 +13,17 @@ Key facts:
 
 ## Docs
 
-- [README](https://github.com/aneesh-iyer29/session-manager/blob/main/README.md): what it does, install, first run, auto-swap settings, FAQ
-- [User guide](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/docs/USAGE.md): every panel, setting, and file
-- [Architecture](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/docs/ARCHITECTURE.md): modules, endpoints, the swap policy, and the switch steps
-- [Changelog](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/CHANGELOG.md): release history
+- [README](https://github.com/aneesh-iyer29/claude-session-manager/blob/main/README.md): what it does, install, first run, auto-swap settings, FAQ
+- [User guide](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/docs/USAGE.md): every panel, setting, and file
+- [Architecture](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/docs/ARCHITECTURE.md): modules, endpoints, the swap policy, and the switch steps
+- [Changelog](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/CHANGELOG.md): release history
 
 ## Install
 
-- [Latest release](https://github.com/aneesh-iyer29/session-manager/releases/latest): download `Session.Manager-<version>-arm64.dmg` (Apple silicon) or `Session.Manager-<version>.dmg` (Intel), drag to Applications, then right-click → Open on first launch (unsigned build)
+- [Latest release](https://github.com/aneesh-iyer29/claude-session-manager/releases/latest): download `Session.Manager-<version>-arm64.dmg` (Apple silicon) or `Session.Manager-<version>.dmg` (Intel), drag to Applications, then right-click → Open on first launch (unsigned build)
 
 ## Optional
 
-- [Contributing](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/CONTRIBUTING.md): setup, ground rules, release steps
-- [AGENTS.md](https://raw.githubusercontent.com/aneesh-iyer29/session-manager/main/AGENTS.md): guidance for coding agents working on the source
-- [Website](https://aneesh-iyer29.github.io/session-manager/): project landing page
+- [Contributing](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/CONTRIBUTING.md): setup, ground rules, release steps
+- [AGENTS.md](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/AGENTS.md): guidance for coding agents working on the source
+- [Website](https://aneesh-iyer29.github.io/claude-session-manager/): project landing page

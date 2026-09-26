@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://aneesh-iyer29.github.io/session-manager/sitemap.xml
+Sitemap: https://aneesh-iyer29.github.io/claude-session-manager/sitemap.xml

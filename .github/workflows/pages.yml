@@ -1,6 +1,6 @@
 name: Pages
 
-# Publishes the landing page in site/ to https://aneesh-iyer29.github.io/session-manager/.
+# Publishes the landing page in site/ to https://aneesh-iyer29.github.io/claude-session-manager/.
 # The logo, screenshot, and llms.txt are copied in at deploy time so each exists once in
 # the repo.
 on:

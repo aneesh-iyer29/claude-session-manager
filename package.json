@@ -29,11 +29,11 @@
   "author": "Aneesh Iyer",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aneesh-iyer29/session-manager.git"
+    "url": "git+https://github.com/aneesh-iyer29/claude-session-manager.git"
   },
-  "homepage": "https://github.com/aneesh-iyer29/session-manager#readme",
+  "homepage": "https://github.com/aneesh-iyer29/claude-session-manager#readme",
   "bugs": {
-    "url": "https://github.com/aneesh-iyer29/session-manager/issues"
+    "url": "https://github.com/aneesh-iyer29/claude-session-manager/issues"
   },
   "engines": {
     "node": ">=22"

@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/aneesh-iyer29/session-manager/actions/workflows/ci.yml"><img src="https://github.com/aneesh-iyer29/session-manager/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/aneesh-iyer29/session-manager/releases/latest"><img src="https://img.shields.io/github/v/release/aneesh-iyer29/session-manager?label=release" alt="Latest release"></a>
-  <a href="https://github.com/aneesh-iyer29/session-manager/releases"><img src="https://img.shields.io/github/downloads/aneesh-iyer29/session-manager/total?label=downloads" alt="Downloads"></a>
+  <a href="https://github.com/aneesh-iyer29/claude-session-manager/actions/workflows/ci.yml"><img src="https://github.com/aneesh-iyer29/claude-session-manager/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/aneesh-iyer29/claude-session-manager/releases/latest"><img src="https://img.shields.io/github/v/release/aneesh-iyer29/claude-session-manager?label=release" alt="Latest release"></a>
+  <a href="https://github.com/aneesh-iyer29/claude-session-manager/releases"><img src="https://img.shields.io/github/downloads/aneesh-iyer29/claude-session-manager/total?label=downloads" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey" alt="Platform: macOS">
 </p>
@@ -47,7 +47,7 @@
 
 ### Download
 
-Grab the DMG for your Mac from the [latest release](https://github.com/aneesh-iyer29/session-manager/releases/latest), open it, and drag the app to Applications.
+Grab the DMG for your Mac from the [latest release](https://github.com/aneesh-iyer29/claude-session-manager/releases/latest), open it, and drag the app to Applications.
 
 | Mac | File |
 | --- | --- |
