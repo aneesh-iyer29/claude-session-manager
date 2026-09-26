@@ -1,16 +1,19 @@
 # Architecture
 
 Session Manager is a macOS Electron app. It watches the usage limits of several Claude Code
-accounts, swaps the active account before its 5-hour session (or a weekly / Fable weekly
-window) throttles it, and shows the one Codex account's quota read-only. It is deliberately
-narrow: **many Claude accounts, one Codex account, three windows that gate swapping.**
+accounts, swaps the active account before its 5-hour session (or the weekly window you chose:
+all models, Fable, or the tighter of the two) throttles it, shows the one Codex account's quota
+read-only, and can text you over iMessage when a Claude Code session is waiting on you. It is
+deliberately narrow: **many Claude accounts, one Codex account, the session plus one weekly
+axis that gate swapping.**
 
 **Contents:** [Source layout](#source-layout) · [Runtime layout](#runtime-layout) ·
 [Credential shapes](#credential-shapes) · [Endpoints used](#endpoints-used) ·
 [Normalized usage model](#normalized-usage-model) · [Swap policy](#swap-policy-srcmainautoswapts) ·
 [Switch mechanics](#switch-mechanics-srcmainswitcherts) · [Daemon](#daemon-srcmaindaemonts) ·
 [Live status line feed](#live-status-line-feed-srcmainliveusagets) ·
-[Compact nudge](#compact-nudge-srcmainnudgets) · [Window and tray](#window-and-tray) ·
+[Compact nudge](#compact-nudge-srcmainnudgets) ·
+[Session alerts](#session-alerts-srcmainsessionsts-attentionts-imessagets) · [Window and tray](#window-and-tray) ·
 [Packaging](#packaging) · [Conventions](#conventions)
 
 ```
@@ -29,6 +32,9 @@ narrow: **many Claude accounts, one Codex account, three windows that gate swapp
 │  claudeOauth.ts  usage / profile / refresh / PKCE login (port 54545)   │
 │  codex.ts        ~/.codex/auth.json → wham/usage                       │
 │  autoswap.ts     pure decision policy                                  │
+│  sessions.ts     session hooks → <dataDir>/sessions/*.json + state     │
+│  attention.ts    pure alert policy: which waiting sessions to text     │
+│  imessage.ts     Messages.app via /usr/bin/osascript                   │
 │  store.ts        JSON files under userData, atomic writes, 0600        │
 │  paths.ts        every path, honours CLAUDE_CONFIG_DIR                 │
 └────────────────────────────────────────────────────────────────────────┘
@@ -56,6 +62,7 @@ docs/           this file, DESIGN.md, USAGE.md
 | `.../usage.json` | last usage snapshot per account |
 | `.../state.json` | `activeId`, `lastSwitchAt`, `lastDecision` |
 | `.../events.jsonl` | append-only event log |
+| `.../sessions/<sessionId>.<Event>.json` | latest hook event of each type per Claude Code session (written by the session hook) |
 | `~/.claude/` (or `$CLAUDE_CONFIG_DIR`) | Claude Code config home |
 | `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | Claude Code global config; `oauthAccount` holds the active identity |
 | Keychain item service `Claude Code-credentials`, account `$USER` | Claude Code's active OAuth credential |
@@ -128,17 +135,21 @@ returned the weekly window as `primary_window`); other lengths become `window:<n
 
 Pure functions, no I/O, fully unit-tested.
 
-* `gatingWindows(usage, model)` returns the windows that gate an account: `five_hour`,
-  `seven_day`, and `model:<model>` if present. `model` defaults to `"Fable"`.
+* `gatingWindows(usage, gate)` returns the windows that gate an account: `five_hour` plus
+  the weekly window(s) `gate.weeklyGate` picks: `all` → `seven_day`; `model` →
+  `model:<gate.model>`, or `seven_day` when the account reports no such window; `both` →
+  both. `gate` is `{ model, weeklyGate }` (any `PolicyOptions` will do) and defaults to
+  Fable / `both`. Everything below reads windows through it, so the choice reaches the
+  gauge, the swap decision, the nudge and the poll cadence alike.
 * `options(settings)` picks the `PolicyOptions` the pure functions read: `model`,
-  `fiveHourThreshold`, `threshold`, `warnPct`.
+  `weeklyGate`, `fiveHourThreshold`, `threshold`, `warnPct`.
 * `swapLineFor(key, opts)`: `fiveHourThreshold` for `five_hour`, `threshold` for every
   weekly-scale window. Each window is judged against its own line.
 * `bindingWindow(usage, opts)`: the 5-hour session; a weekly window instead when its pct is
   ≥ `min(warnPct, threshold)` and higher than the session's (the week runs out before the
   session does). Without a session window, the highest window.
   `headroom(usage, opts)` = `100 - pct` of that window; `null` when usage unknown.
-* `sessionHeadroom` / `weeklyHeadroom` / `overallHeadroom(usage, model)`: one axis each
+* `sessionHeadroom` / `weeklyHeadroom` / `overallHeadroom(usage, gate)`: one axis each
   (`100 - pct` of the session, of the tightest weekly window, of the highest window).
 * `nearLimit(usage, opts)`: the window at or past its own line, furthest past first, or `null`.
   `closestToLine(usage, opts)`: the window with the fewest points left before its line.
@@ -213,6 +224,8 @@ credential). Never refresh the *active* account's token; Claude Code owns it.
 * `pollIntervalSeconds` is capped at 86400 (a longer `setTimeout` overflows and fires at once).
 * Emits `stateChanged` after every mutation. The renderer never polls.
 * Sends a macOS notification (Electron `Notification`) on automatic switches when `notify`.
+* Watches `<dataDir>/sessions/` (`fs.watch`, 300 ms debounce): every hook event pushes state
+  and re-runs the alert check. See [Session alerts](#session-alerts-srcmainsessionsts-attentionts-imessagets).
 * Login flow: `startLogin()` cancels any pending login, starts a one-shot HTTP server on
   `127.0.0.1:54545`, opens the authorize URL with `shell.openExternal`, exchanges the code,
   fetches the profile, and adds the account. Times out after 5 minutes. Callbacks whose
@@ -243,6 +256,8 @@ against the usage endpoint's budget (~30/hour per token), refreshed on every ass
   2 × (liveWeekly − anchor.weekly)`, clamped, where the anchor is the last endpoint-reported
   (model, weekly) pair. Fable's weekly cap is about half the all-models cap and these accounts
   run Fable almost exclusively. Projected windows carry `estimated: true` and render with ≈.
+  With `weeklyGate: 'all'` the user has said otherwise, so there is no projection and the
+  model window keeps its last endpoint reading.
 
 ## Compact nudge (`src/main/nudge.ts`)
 
@@ -264,6 +279,55 @@ prompt with a message or hand Claude context. So:
   (recording the id in `swap-pending.nudged`) and adds `additionalContext` afterwards; in
   `context` mode it only adds context. No flag → exit 0, no output.
 
+## Session alerts (`src/main/sessions.ts`, `attention.ts`, `imessage.ts`)
+
+Tell the user, on their phone, when a Claude Code session is waiting on them. Built from
+three parts that each do one thing, with nothing installed beyond a hook script.
+
+* **Hooks (`sessions.ts`).** `installSessionHooks()` writes
+  `~/.claude/hooks/session-manager-sessions.sh` (0755) and registers it, as
+  `"<script>" <Event>`, for `SessionStart`, `UserPromptSubmit`, `PreToolUse` (matcher
+  `AskUserQuestion`), `PermissionRequest`, `PostToolUse`, `Notification` (matcher
+  `permission_prompt|idle_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input`),
+  `Stop`, and `SessionEnd`. Every entry but `SessionEnd` is `async: true`, so Claude Code never
+  waits on it. Other hook entries (the compact nudge's, the user's) and every other key are
+  preserved; an unparsable settings file is refused. `uninstallSessionHooks()` removes exactly
+  ours and the script. Honours `CLAUDE_CONFIG_DIR`.
+* **The script** (bash 3.2 builtins only, never prints, always exits 0) pulls `session_id`,
+  `cwd`, `tool_name`, `notification_type` and one `message` (the notification text, or the
+  first AskUserQuestion question) out of the first 16 KiB of stdin with bash regexes and writes
+  just those, as JSON, to `<dataDir>/sessions/<sessionId>.<Event>.json` (temp + rename). Prompts,
+  tool inputs and tool outputs are never written. `SessionEnd` deletes the session's files.
+* **State (`readSessions`, `deriveSession`).** File mtimes order a session's latest event of
+  each type. Hard events set the state: `SessionStart` → `ready`, `UserPromptSubmit` and
+  `PostToolUse` → `working`, `PreToolUse` (AskUserQuestion) → `question`, `PermissionRequest`
+  → `permission` (`question` for AskUserQuestion), `Stop` → `done`. Notifications are soft:
+  they only decide the state when newer than every hard event (a permission prompt racing a
+  parallel tool's `PostToolUse`, an Esc-interrupted turn that never fired `Stop`). A working
+  stretch dates from its newest boundary (prompt, question, permission request, `Stop`,
+  start), not from the last `PostToolUse`, so tool calls do not restart its clock; the daemon
+  pushes state only when the session list actually changes. Sessions silent for 12 h are
+  dropped and their files deleted.
+* **Policy (`attention.planAlerts`, pure).** A session in `done`, `question` or `permission`
+  starts a *waiting spell* keyed `id|state|since`. It is due once it has waited
+  `alertAfterMinutes`; with `alertOnlyWhenAway`, it is dropped for good if the Mac saw
+  keyboard or mouse input after `since` (Electron `powerMonitor.getSystemIdleTime()`, injected
+  as `deps.idleSeconds`). Otherwise the soonest pending spell sets the next wake-up.
+* **Daemon.** `checkAlerts()` runs on every session change, settings change and poll, and on
+  one `setTimeout` for the next spell to come due (no polling, no `setInterval`). Due spells
+  go out as one message (`attention.alertMessage`) through `deps.sendText`; each spell is
+  texted at most once. A failed send is logged once and retried after 5 minutes. On start and
+  when alerts are switched on, spells already due are marked as handled, so neither texts
+  about sessions that sat waiting for hours. Events say "Texted you: “api” needs you", never
+  the handle.
+* **Messages (`imessage.ts`).** `sendIMessage(to, text)` runs `/usr/bin/osascript -e <script>
+  <handle> <text>`; the script reads both from `argv` (`first account whose service type =
+  iMessage`, `send … to participant …`), so nothing in the text can inject AppleScript.
+  Handles are normalized to `+digits` or a lowercased email. Failures become user-safe
+  reasons (Automation not allowed, no iMessage account, unknown recipient, timeout) with the
+  handle and text scrubbed. The first send triggers macOS's Automation consent prompt, which
+  names Session Manager (`NSAppleEventsUsageDescription` in `electron-builder.yml`).
+
 ## Window and tray
 
 * One `BrowserWindow`, 1040×720 default, min 860×600, `titleBarStyle: 'hiddenInset'`,
@@ -274,7 +338,8 @@ prompt with a message or hand Claude context. So:
   `npx electron scripts/render-tray.mjs` from `build/tray.svg`), no title. Click pops a glance
   menu whose rows are images: `trayText.ts` builds the row model and its HTML,
   `trayRender.ts` paints all rows in one offscreen transparent window at 2× and crops them into
-  per-row `NativeImage`s (rebuilt on every state push, so the menu opens instantly). Each
+  per-row `NativeImage`s (rebuilt when a state push changes the rows, so the menu opens
+  instantly and a push that changes nothing costs nothing). Each
   window row is label · "Resets in 3 hr 5 min" · percent over a 4 px bar in the headroom
   colour. If rendering fails the same rows fall back to text. Rows open the window; the only
   other items are Open Session Manager and Quit. No state changes from the tray.
@@ -287,7 +352,10 @@ prompt with a message or hand Claude context. So:
 extension for an ESM preload), `out/renderer/`. `npm run dist:dir` → `dist/mac-arm64/Session
 Manager.app`; `npm run dist` → `dist/Session Manager-<version>-arm64.dmg` (and x64, and zips).
 Builds are unsigned (`identity: null`); first launch needs right-click → Open, or
-`xattr -dr com.apple.quarantine "/Applications/Session Manager.app"`.
+`xattr -dr com.apple.quarantine "/Applications/Session Manager.app"`. `extendInfo` carries
+`NSAppleEventsUsageDescription` for the Messages consent prompt, and
+`build/entitlements.mac.plist` includes `com.apple.security.automation.apple-events` for
+the day the app is signed with the hardened runtime.
 
 Releases are cut by pushing a `v<version>` tag: `.github/workflows/release.yml` runs the
 checks, packages on a macOS runner, and publishes the GitHub release with the DMGs and the

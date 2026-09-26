@@ -27,6 +27,12 @@ let currentActions: TrayActions | null = null
 let menu: Menu | null = null
 let lastFrame: NativeImage | null = null
 let renderSeq = 0
+/**
+ * The rows the current menu was built from. Session hook events push state on
+ * every tool call, and none of them changes a row; re-painting the offscreen
+ * window for each would burn CPU for nothing.
+ */
+let renderedKey = ''
 
 /**
  * Both scale factors are added explicitly: electron-vite hashes asset file
@@ -60,12 +66,15 @@ function imageMenu(rows: MenuRow[], images: NativeImage[], actions: TrayActions)
   return Menu.buildFromTemplate([...items, ...actionsItems(actions)])
 }
 
-/** Rebuild on every state push; the newest render wins if several overlap. */
-async function rebuild(): Promise<void> {
+/** Rebuild when a state push changes the rows; the newest render wins if several overlap. */
+async function rebuild(force = false): Promise<void> {
   if (!latest || !currentActions) return
   const state = latest
   const actions = currentActions
   const rows = menuRows(state, new Date())
+  const key = JSON.stringify(rows)
+  if (!force && menu && key === renderedKey) return
+  renderedKey = key
   const seq = ++renderSeq
   menu = menu ?? textMenu(rows, actions)
   try {
@@ -75,6 +84,7 @@ async function rebuild(): Promise<void> {
     menu = imageMenu(rows, rendered.rows, actions)
   } catch {
     if (seq !== renderSeq) return
+    renderedKey = '' // try the images again on the next push
     menu = textMenu(rows, actions)
   }
 }
@@ -92,7 +102,7 @@ export function createTray(actions: TrayActions): Tray {
   tray.setTitle('')
   tray.on('click', popup)
   tray.on('right-click', popup)
-  nativeTheme.on('updated', () => void rebuild())
+  nativeTheme.on('updated', () => void rebuild(true))
   return tray
 }
 

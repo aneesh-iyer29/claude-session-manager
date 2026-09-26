@@ -7,5 +7,8 @@
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+    <!-- iMessage alerts drive Messages through osascript; the hardened runtime needs this to allow it. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
   </dict>
 </plist>

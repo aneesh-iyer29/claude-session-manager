@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
-import type { AppState, Decision, NudgeMode, Settings, Strategy } from '@shared/types'
+import type { AppState, Decision, NudgeMode, Settings, Strategy, WeeklyGate } from '@shared/types'
 import type { Actions } from '../hooks/useActions'
-import { formatAgo, formatDuration } from '../lib/format'
+import { formatAgo, formatDuration, weeklyGateLabel } from '../lib/format'
 import { Button } from './Button'
 import { Toggle } from './Toggle'
 
@@ -11,12 +11,16 @@ interface Props {
   actions: Actions
 }
 
-type Draft = Pick<Settings, 'strategy' | 'fiveHourThreshold' | 'threshold' | 'margin' | 'cooldownSeconds' | 'pollIntervalSeconds' | 'model' | 'warnPct' | 'nudgeMode'>
+type Draft = Pick<
+  Settings,
+  'strategy' | 'fiveHourThreshold' | 'threshold' | 'weeklyGate' | 'margin' | 'cooldownSeconds' | 'pollIntervalSeconds' | 'model' | 'warnPct' | 'nudgeMode'
+>
 
 const pick = (s: Settings): Draft => ({
   strategy: s.strategy,
   fiveHourThreshold: s.fiveHourThreshold,
   threshold: s.threshold,
+  weeklyGate: s.weeklyGate,
   margin: s.margin,
   cooldownSeconds: s.cooldownSeconds,
   pollIntervalSeconds: s.pollIntervalSeconds,
@@ -64,7 +68,7 @@ export function AutoswapPanel({ state, now, actions }: Props) {
 
       <div className="card panel">
         <div className="panel__summary">
-          5-hour at {settings.fiveHourThreshold} · weekly at {settings.threshold} · margin {settings.margin} · cooldown{' '}
+          5-hour at {settings.fiveHourThreshold} · weekly ({weeklyGateLabel(settings)}) at {settings.threshold} · margin {settings.margin} · cooldown{' '}
           {formatDuration(settings.cooldownSeconds)} · every {formatDuration(settings.pollIntervalSeconds)}
         </div>
         <DecisionLine decision={state.autoswap.lastDecision} state={state} />
@@ -110,6 +114,18 @@ export function AutoswapPanel({ state, now, actions }: Props) {
             <span className="field__label">Weekly swap at (%)</span>
             <input className="field__input" type="number" min={50} max={100} step={1} value={draft.threshold} onChange={num('threshold', settings.threshold)} />
           </label>
+          <label className="field field--wide">
+            <span className="field__label">Weekly limit</span>
+            <select className="field__input" value={draft.weeklyGate} onChange={(e) => set('weeklyGate', e.target.value as WeeklyGate)}>
+              <option value="all">All models</option>
+              <option value="model">{draft.model.trim() ? `${draft.model.trim()} only` : 'Model only'}</option>
+              <option value="both">Whichever is tighter</option>
+            </select>
+          </label>
+          <label className="field field--wide">
+            <span className="field__label">Gating model window</span>
+            <input className="field__input" type="text" value={draft.model} maxLength={40} onChange={(e) => set('model', e.target.value)} />
+          </label>
           <label className="field">
             <span className="field__label">Margin (%)</span>
             <input className="field__input" type="number" min={0} max={50} step={1} value={draft.margin} onChange={num('margin', settings.margin)} />
@@ -122,15 +138,11 @@ export function AutoswapPanel({ state, now, actions }: Props) {
             <span className="field__label">Poll every (s)</span>
             <input className="field__input" type="number" min={15} step={15} value={draft.pollIntervalSeconds} onChange={num('pollIntervalSeconds', settings.pollIntervalSeconds)} />
           </label>
-          <label className="field field--wide">
-            <span className="field__label">Gating model window</span>
-            <input className="field__input" type="text" value={draft.model} maxLength={40} onChange={(e) => set('model', e.target.value)} />
-          </label>
           <label className="field">
             <span className="field__label">Warn at (%)</span>
             <input className="field__input" type="number" min={50} max={100} step={1} value={draft.warnPct} onChange={num('warnPct', settings.warnPct)} />
           </label>
-          <label className="field">
+          <label className="field field--wide">
             <span className="field__label">Nudge</span>
             <select className="field__input" value={draft.nudgeMode} onChange={(e) => set('nudgeMode', e.target.value as NudgeMode)}>
               <option value="block">Block once</option>

@@ -24,6 +24,8 @@ mac:
   extendInfo:
     LSUIElement: false
     NSHumanReadableCopyright: Copyright © 2026 Aneesh Iyer
+    # Shown in the Automation consent prompt the first time an iMessage alert is sent.
+    NSAppleEventsUsageDescription: Session Manager uses Messages to text you when a Claude Code session is waiting on you.
 dmg:
   sign: false
   contents:

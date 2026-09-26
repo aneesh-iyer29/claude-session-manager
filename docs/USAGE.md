@@ -6,7 +6,7 @@ the [README](../README.md); for how it works underneath see [ARCHITECTURE.md](AR
 **Contents:** [Adding accounts](#adding-accounts) · [Reading a card](#reading-a-card) ·
 [Switching manually](#switching-manually) · [Auto-swap](#auto-swap) ·
 [Live usage from Claude Code](#live-usage-from-claude-code) · [Compact nudge](#compact-nudge) ·
-[Codex panel](#codex-panel) · [Menu bar](#menu-bar) · [Settings reference](#settings-reference) ·
+[Claude Code sessions and iMessage alerts](#claude-code-sessions-and-imessage-alerts) · [Codex panel](#codex-panel) · [Menu bar](#menu-bar) · [Settings reference](#settings-reference) ·
 [Files](#files)
 
 ## Adding accounts
@@ -55,7 +55,12 @@ Arm it in the Auto-swap panel or from the menu bar. Each poll the policy runs:
 
 1. Accounts that are held or have unknown usage are never targets.
 2. The active account is *near limit* when its 5-hour session is at or past **5-hour swap
-   at**, or a weekly window is at or past **Weekly swap at**.
+   at**, or the weekly window that counts is at or past **Weekly swap at**. **Weekly limit**
+   picks that window: *All models* (the plain weekly limit; the right choice while you
+   mostly run Opus), *Fable only* (the per-model weekly window named by **Gating model
+   window**; an account that reports none falls back to the all-models week), or
+   *Whichever is tighter* (the default: both count). A window that does not count still
+   shows on the card, without a swap line.
 3. `best`: stay unless near limit. `consume_first`: prefer the account whose weekly window
    resets soonest, if its weekly headroom beats the active account's by ≥ **margin** and it
    is under every line.
@@ -82,7 +87,8 @@ numbers to Session Manager on every assistant message, so the active account upd
 live and the app polls Anthropic only for the Fable window (every 30 min, or every 5 once
 it is within 10 points of its swap line). Between those
 polls the Fable window is projected from the live weekly number, two Fable points per weekly
-point, anchored at the last real reading, and shown with a ≈ mark. If you already
+point, anchored at the last real reading, and shown with a ≈ mark (with **Weekly limit** on
+*All models* there is no projection: the Fable window keeps its last real reading). If you already
 have a status line, it keeps running underneath ours; Remove restores it. Standby accounts
 are still polled, since Claude Code only knows about the account it is logged in with.
 
@@ -111,6 +117,42 @@ gets you to `/compact` first.
 The flag clears on its own once the account is below the warn line again, or after the swap.
 The hook is silent whenever there is no flag. Session Manager only needs to be running; the
 hook works in every Claude Code session on the machine.
+
+## Claude Code sessions and iMessage alerts
+
+The *Claude Code sessions* panel lists every Claude Code session open on this Mac and what
+it is doing: **Working**, **Asking a question** (Claude asked you something, or an MCP server
+wants input), **Needs permission** (a permission prompt is up), **Your turn** (it finished
+and is waiting for your next message), or **Ready** (opened, no prompt yet). With alerts on,
+Session Manager texts your phone through the Messages app on this Mac when one of them is
+waiting on you, so you know to come back while you are away. No other software is needed,
+and nothing leaves the Mac except that iMessage.
+
+1. Click **Install** on "Claude Code session hooks". This writes
+   `~/.claude/hooks/session-manager-sessions.sh` and registers it in `~/.claude/settings.json`
+   for the events that show where a session is (session start and end, prompts, tool calls,
+   permission requests, questions, notifications, and the end of each turn). The hooks run in
+   the background, so Claude Code never waits on them. Each writes a tiny file under
+   `sessions/` in the data folder with the session id, its folder, and at most the question
+   Claude asked; prompts, tool inputs and outputs are never stored. **Remove** takes them out.
+   Claude Code reads its hooks when a session starts, so sessions already open show up once
+   restarted (or resumed with `claude --resume`).
+2. Enter the phone number or Apple ID email to text under **iMessage to** and Save.
+   Messages on this Mac must be signed in to iMessage. Press **Send test**: the first time,
+   macOS asks whether Session Manager may control Messages. Allow it (or later in System
+   Settings → Privacy & Security → Automation).
+3. Turn on **Text me when a session needs me**.
+
+When a session starts waiting on you, a text goes out once it has waited **Text after (min)**
+(default 2). With **Only when I'm away** on (the default), it is sent only if the Mac has had
+no keyboard or mouse input since the session started waiting, so nothing arrives while you
+are at the desk. Several sessions ready at the same moment share one text. Each waiting spell
+is texted at most once; the session has to move on and wait again for another. Turning
+alerts on (or starting the app) never texts about sessions that were already waiting.
+
+Texting your own number from the same Apple ID: the message lands in the conversation with
+yourself. If your phone does not notify you for it, text a different handle of yours (your
+email instead of your number, or the reverse), or check that the conversation is not muted.
 
 ## Codex panel
 
@@ -145,18 +187,24 @@ window hides it; quit from the menu or ⌘Q.
 | Cooldown | ≥ 0, 300 s | Minimum gap between automatic switches. |
 | Poll interval | ≥ 15, 300 s | How often the loop runs; each account is fetched at most every 5 min (standby: 10). |
 | Strategy | `best` | `best` or `consume_first`. |
-| Model | `Fable` | Display name of the per-model weekly window that gates swapping. |
+| Weekly limit | Whichever is tighter | Which weekly window counts: *All models*, *Fable only* (the per-model window), or both. |
+| Model | `Fable` | Display name of the per-model weekly window (**Gating model window**). |
 | Codex panel (Hide / Show) | on | Show the Codex panel. |
 | Notifications | on | macOS notification on automatic switches. |
 | Launch at login | off | Register as a login item. |
 | Show in Dock | on | Off = menu-bar only. |
-
 | Warn at | 80 | Raise the compact nudge when the active account's window nearest its swap line reaches this; a weekly window past it can take over the gauge from the session |
 | Nudge | Block once | What the Claude Code hook does with the flag |
+| Text me when a session needs me | off | Send an iMessage when a Claude Code session waits on you. Needs **iMessage to**. |
+| iMessage to | empty | Phone number or Apple ID email to text. |
+| Only when I'm away | on | Text only if the Mac has had no input since the session started waiting. |
+| Text after (min) | 1–60, 2 | How long a session waits before the text goes out. |
 
 ## Files
 
 `~/Library/Application Support/Session Manager/` holds `settings.json`, `accounts.json`
-(no secrets), `credentials/` (0600 files), `usage.json`, `state.json`, and `events.jsonl`.
+(no secrets), `credentials/` (0600 files), `usage.json`, `state.json`, `events.jsonl`, and
+`sessions/` (one small file per Claude Code session and hook event; ended sessions are
+removed, idle ones after 12 hours).
 Deleting the folder while the app is quit resets it; the app never
 touches Claude Code's own login.

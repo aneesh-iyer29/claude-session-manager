@@ -22,7 +22,7 @@ import {
 } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-import type { Decision, EventKind, Settings, Strategy, SwapperEvent, TokenStatus, Usage } from '../shared/types'
+import type { Decision, EventKind, Settings, Strategy, SwapperEvent, TokenStatus, Usage, WeeklyGate } from '../shared/types'
 import { DEFAULT_SETTINGS } from '../shared/types'
 
 /** Metadata for one Claude account; the secret lives in `credentials/<id>.json`. */
@@ -55,6 +55,9 @@ export const EVENTS_KEEP = 500
 
 const ID_RE = /^acc_(\d+)$/
 const STRATEGIES: readonly Strategy[] = ['best', 'consume_first']
+const WEEKLY_GATES: readonly WeeklyGate[] = ['all', 'model', 'both']
+/** Long enough for any email address; the daemon validates the shape on the way in. */
+const MAX_ALERT_TO_LENGTH = 254
 
 /** UTC timestamp with second precision and a `Z` suffix, as used everywhere. */
 export function utcNowIso(now: Date = new Date()): string {
@@ -107,6 +110,7 @@ export function normalizeSettings(input: unknown): Settings {
   const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback)
   const strategy = STRATEGIES.includes(s.strategy as Strategy) ? (s.strategy as Strategy) : d.strategy
   const model = typeof s.model === 'string' && s.model.trim() ? s.model.trim() : d.model
+  const alertTo = typeof s.alertTo === 'string' ? s.alertTo.trim().slice(0, MAX_ALERT_TO_LENGTH) : d.alertTo
   return {
     autoswapEnabled: bool(s.autoswapEnabled, d.autoswapEnabled),
     dryRun: bool(s.dryRun, d.dryRun),
@@ -123,6 +127,12 @@ export function normalizeSettings(input: unknown): Settings {
     showInDock: bool(s.showInDock, d.showInDock),
     warnPct: clampNumber(s.warnPct, d.warnPct, 50, 100),
     nudgeMode: s.nudgeMode === 'context' ? 'context' : d.nudgeMode,
+    weeklyGate: WEEKLY_GATES.includes(s.weeklyGate as WeeklyGate) ? (s.weeklyGate as WeeklyGate) : d.weeklyGate,
+    // A hand-edited file cannot switch alerts on without somewhere to send them.
+    alertsEnabled: bool(s.alertsEnabled, d.alertsEnabled) && alertTo !== '',
+    alertTo,
+    alertOnlyWhenAway: bool(s.alertOnlyWhenAway, d.alertOnlyWhenAway),
+    alertAfterMinutes: clampNumber(s.alertAfterMinutes, d.alertAfterMinutes, 1, 60),
   }
 }
 

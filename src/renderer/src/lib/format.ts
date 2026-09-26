@@ -35,10 +35,26 @@ export function formatAgo(at: string | null, now: Date): string {
   const ms = now.getTime() - new Date(at).getTime()
   if (Number.isNaN(ms)) return 'never'
   if (ms < 2_000) return 'just now'
-  if (ms < MINUTE) return `${Math.floor(ms / 1000)} s ago`
-  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min ago`
-  if (ms < DAY) return `${Math.floor(ms / HOUR)} h ago`
-  return `${Math.floor(ms / DAY)} d ago`
+  return `${elapsed(ms)} ago`
+}
+
+/**
+ * How long something has been in its state: "12 s", "4 min", "2 h", "3 d".
+ * The same unit ladder as `formatAgo`, without the suffix, so a session row's
+ * timer reads like the rest of the app. Future or unparseable times → "—".
+ */
+export function formatElapsed(since: string | null, now: Date): string {
+  if (!since) return '—'
+  const ms = now.getTime() - new Date(since).getTime()
+  if (Number.isNaN(ms)) return '—'
+  return elapsed(Math.max(0, ms))
+}
+
+function elapsed(ms: number): string {
+  if (ms < MINUTE) return `${Math.floor(ms / 1000)} s`
+  if (ms < HOUR) return `${Math.floor(ms / MINUTE)} min`
+  if (ms < DAY) return `${Math.floor(ms / HOUR)} h`
+  return `${Math.floor(ms / DAY)} d`
 }
 
 /** Whole percent with the sign, clamped to 0-100 so bad data cannot break meters. */
@@ -94,6 +110,57 @@ export function displayName(account: Pick<Account, 'alias' | 'email'>): string {
  */
 export function swapLineFor(key: string, settings: Pick<Settings, 'fiveHourThreshold' | 'threshold'>): number {
   return key === 'five_hour' ? settings.fiveHourThreshold : settings.threshold
+}
+
+type GateSettings = Pick<Settings, 'model' | 'weeklyGate'>
+
+/** The usage key of the per-model weekly window, e.g. `model:fable`. Mirrors the main process. */
+export function modelWindowKey(model: string): string {
+  return `model:${model.toLowerCase()}`
+}
+
+/**
+ * The window keys that count toward headroom and the swap lines under the
+ * current `weeklyGate`. The 5-hour session always gates. `all` adds the
+ * all-models week; `model` adds the per-model week, falling back to the
+ * all-models week for an account that reports no model window (so it is never
+ * left ungated); `both` adds both. Mirrors `autoswap.gatingWindows`.
+ */
+export function gatingKeys(usage: Usage | null, settings: GateSettings): Set<string> {
+  const model = modelWindowKey(settings.model)
+  const hasModel = usage?.windows.some((w) => w.key === model) ?? false
+  const keys = new Set(['five_hour'])
+  if (settings.weeklyGate !== 'model' || !hasModel) keys.add('seven_day')
+  if (settings.weeklyGate !== 'all') keys.add(model)
+  return keys
+}
+
+export function isGatingWindow(key: string, usage: Usage | null, settings: GateSettings): boolean {
+  return gatingKeys(usage, settings).has(key)
+}
+
+/**
+ * The swap line to draw for a window, or undefined when the window does not
+ * gate: a meter must never read "at threshold" for a week that cannot trigger
+ * a swap.
+ */
+export function gatingSwapLine(
+  key: string,
+  usage: Usage | null,
+  settings: GateSettings & Pick<Settings, 'fiveHourThreshold' | 'threshold'>,
+): number | undefined {
+  return isGatingWindow(key, usage, settings) ? swapLineFor(key, settings) : undefined
+}
+
+/**
+ * Which weekly window counts, in words for the auto-swap summary:
+ * "all models", "Fable", "all models and Fable" (both count, so the tighter one binds).
+ */
+export function weeklyGateLabel(settings: GateSettings): string {
+  const model = settings.model.trim() || 'model'
+  if (settings.weeklyGate === 'all') return 'all models'
+  if (settings.weeklyGate === 'model') return model
+  return `all models and ${model}`
 }
 
 /** Resolve the account's binding window from its usage, or null when unknown. */

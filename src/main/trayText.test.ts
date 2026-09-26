@@ -48,6 +48,7 @@ function state(extra: Partial<AppState> = {}): AppState {
     accounts: [account()],
     codex: codexNone,
     nudge: { hookInstalled: false, pending: null },
+    sessions: { hooksInstalled: false, sessions: [], lastAlertAt: null },
     liveFeed: { installed: false, lastAt: null },
     events: [],
     ...extra,

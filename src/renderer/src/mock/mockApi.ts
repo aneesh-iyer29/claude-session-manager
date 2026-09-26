@@ -5,21 +5,26 @@
  * flow resolves a few seconds later with a fresh account. Nothing here touches
  * the network or disk, so the UI can be built and screenshotted anywhere.
  */
-import type { AppState, Decision, LoginStatus, Settings, SwapperEvent } from '@shared/types'
+import type { AppState, ClaudeSession, Decision, LoginStatus, Settings, SwapperEvent } from '@shared/types'
 import type { SwapperApi } from '@shared/ipc'
-import { buildState, makeUsage, seedAccounts, seedCodex, seedEvents, seedSettings, type MockAccount } from './fixture'
+import { normalizeAlertTo } from '../lib/sessions'
+import { buildState, gating, makeUsage, seedAccounts, seedCodex, seedEvents, seedSessions, seedSettings, type MockAccount } from './fixture'
 
 const LATENCY_MS = 250
 
 export function createMockApi(): SwapperApi {
   const started = new Date()
   let accounts = seedAccounts(started)
-  let settings: Settings = { ...seedSettings }
+  // Alerts start configured so the sessions panel shows its full state; clear the handle to see the unset one.
+  let settings: Settings = { ...seedSettings, alertsEnabled: true, alertTo: '+15551234567' }
   let events = seedEvents(started)
   let codex = seedCodex(started)
   let activeId: string | null = 'acc_1'
   let hookInstalled = false
   let feedInstalled = false
+  let sessionHooksInstalled = true
+  let sessions: ClaudeSession[] = seedSessions(started)
+  let lastAlertAt: string | null = sessions.find((x) => x.alertedAt)?.alertedAt ?? null
   let lastPollAt: string | null = new Date(started.getTime() - 12_000).toISOString()
   let inFlight = false
   let lastSwitchAt: string | null = events.find((e) => e.kind === 'switch')?.at ?? null
@@ -49,6 +54,8 @@ export function createMockApi(): SwapperApi {
       lastSwitchAt,
       nudge: { hookInstalled, pending: pendingNudge() },
       liveFeed: { installed: feedInstalled, lastAt: feedInstalled ? new Date(Date.now() - 42_000).toISOString() : null },
+      // Without the hooks nothing reports in, so the list is empty until they are installed.
+      sessions: { hooksInstalled: sessionHooksInstalled, sessions: sessionHooksInstalled ? sessions : [], lastAlertAt },
     })
 
   /** Mirror the daemon: flag when the active account's window nearest its swap line is at or past warnPct. */
@@ -56,9 +63,9 @@ export function createMockApi(): SwapperApi {
     if (!settings.autoswapEnabled || settings.dryRun) return null
     const a = accounts.find((x) => x.id === activeId)
     if (!a?.usage) return null
-    const gating = a.usage.windows.filter((w) => w.key === 'five_hour' || w.key === 'seven_day' || w.key === `model:${settings.model.toLowerCase()}`)
+    const windows = gating(a.usage, settings)
     const line = (key: string): number => (key === 'five_hour' ? settings.fiveHourThreshold : settings.threshold)
-    const worst = gating.reduce<(typeof gating)[number] | null>((m, w) => (m == null || line(w.key) - w.pct < line(m.key) - m.pct ? w : m), null)
+    const worst = windows.reduce<(typeof windows)[number] | null>((m, w) => (m == null || line(w.key) - w.pct < line(m.key) - m.pct ? w : m), null)
     if (!worst || worst.pct < settings.warnPct) return null
     const label = a.alias || a.email
     const pct = Math.round(worst.pct)
@@ -127,6 +134,7 @@ export function createMockApi(): SwapperApi {
           )
           lastPollAt = now.toISOString()
           inFlight = false
+          sessions = stepSessions(sessions, now)
           const active = accounts.find((a) => a.id === activeId)
           const binding = active?.usage?.windows.find((w) => w.key === 'model:fable')
           lastDecision = {
@@ -249,6 +257,12 @@ export function createMockApi(): SwapperApi {
         if (next.cooldownSeconds < 0) throw new Error('Cooldown cannot be negative.')
         if (next.pollIntervalSeconds < 15) throw new Error('Poll interval must be at least 15 seconds.')
         if (!next.model.trim()) throw new Error('Model name cannot be empty.')
+        if (!['all', 'model', 'both'].includes(next.weeklyGate)) throw new Error('Weekly limit must be all models, the model window, or both.')
+        if (!(next.alertAfterMinutes >= 1 && next.alertAfterMinutes <= 60)) throw new Error('Text after must be between 1 and 60 minutes.')
+        const alertTo = normalizeAlertTo(next.alertTo)
+        if (alertTo === null) throw new Error("That isn't a phone number or email Messages can text.")
+        next.alertTo = alertTo
+        if (next.alertsEnabled && !next.alertTo) throw new Error('Set a phone number or email to text first.')
         settings = next
         return push()
       }),
@@ -288,6 +302,29 @@ export function createMockApi(): SwapperApi {
         return push()
       }),
 
+    installSessionHooks: () =>
+      later(() => {
+        sessionHooksInstalled = true
+        sessions = seedSessions(new Date())
+        log('info', 'Claude Code session hooks installed', null)
+        return push()
+      }),
+
+    uninstallSessionHooks: () =>
+      later(() => {
+        sessionHooksInstalled = false
+        log('info', 'Claude Code session hooks removed', null)
+        return push()
+      }),
+
+    sendTestAlert: () =>
+      later(() => {
+        if (!settings.alertTo) throw new Error('Set a phone number or email to text first.')
+        lastAlertAt = new Date().toISOString()
+        log('info', 'Test iMessage sent', null)
+        return push()
+      }),
+
     onState: (cb) => {
       listeners.add(cb)
       return () => {
@@ -297,4 +334,20 @@ export function createMockApi(): SwapperApi {
   }
 
   return api
+}
+
+/**
+ * One tick of pretend work: a working session finishes its turn and a finished
+ * one gets a new prompt, each re-stamped and moved to the top, the way the
+ * daemon orders sessions by their latest change.
+ */
+function stepSessions(list: ClaudeSession[], now: Date): ClaudeSession[] {
+  const at = now.toISOString()
+  const flip = (x: ClaudeSession): ClaudeSession =>
+    x.state === 'working'
+      ? { ...x, state: 'done', since: at, detail: null, alertedAt: null }
+      : x.state === 'done'
+        ? { ...x, state: 'working', since: at, detail: null, alertedAt: null }
+        : x
+  return list.map(flip).sort((a, b) => b.since.localeCompare(a.since))
 }
