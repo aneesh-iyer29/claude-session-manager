@@ -30,7 +30,9 @@
 
 <br>
 
-![The dashboard: the active account's gauge, standby accounts, and the Codex and auto-swap panels](docs/screenshot.png)
+[![Watch the 22-second demo: the active account reaches its 90% swap line, Session Manager switches Claude Code to the account with the most headroom, and a waiting session arrives as an iMessage](docs/demo-thumb.jpg)](https://aneesh-iyer29.github.io/claude-session-manager/#demo)
+
+<p align="center"><sub>▶ <a href="https://aneesh-iyer29.github.io/claude-session-manager/#demo">Watch the 22-second demo</a> (with sound) · <a href="docs/demo.mp4">download the MP4</a></sub></p>
 
 ## What it does
 
@@ -80,6 +82,8 @@ The dashboard opens empty with two ways to add an account:
 Whichever account matches the live Keychain credential is marked **active**.
 
 ## The dashboard
+
+![The dashboard: the active account's gauge, standby accounts, and the Codex and auto-swap panels](docs/screenshot.png)
 
 | Panel | What it shows |
 | --- | --- |
