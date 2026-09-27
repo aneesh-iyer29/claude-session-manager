@@ -54,6 +54,16 @@
       "keywords": "Claude Code, account switcher, usage limits, rate limit, Claude Max, Claude Pro, menu bar, macOS, Codex"
     },
     {
+      "@type": "VideoObject",
+      "name": "Session Manager for Claude Code in 22 seconds",
+      "description": "The active Claude account reaches its 90% swap line and Session Manager switches Claude Code to the account with the most headroom; then a Claude Code session waiting on you arrives as an iMessage.",
+      "thumbnailUrl": "https://aneesh-iyer29.github.io/claude-session-manager/demo.jpg",
+      "contentUrl": "https://aneesh-iyer29.github.io/claude-session-manager/demo.mp4",
+      "uploadDate": "2026-09-27",
+      "duration": "PT22S",
+      "about": { "@id": "https://aneesh-iyer29.github.io/claude-session-manager/#app" }
+    },
+    {
       "@type": "SoftwareSourceCode",
       "name": "session-manager",
       "codeRepository": "https://github.com/aneesh-iyer29/claude-session-manager",
@@ -192,9 +202,11 @@
   .meta { margin-top: 18px; font: 12px var(--mono); color: var(--text-3); }
 
   .shot { margin: 16px 0 0; }
-  .shot img {
+  .shot img, .shot video {
     display: block; width: 100%; height: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
   }
+  .shot video { aspect-ratio: 16 / 9; }
+  #features .shot { margin: 28px 0 0; }
   .shot figcaption { margin-top: 10px; font-size: 13px; color: var(--text-3); }
 
   section { padding: 64px 0 8px; }
@@ -316,10 +328,10 @@
   </div>
 
   <div class="wrap">
-    <figure class="shot">
-      <img src="screenshot.png" width="2360" height="1520"
-           alt="Session Manager dashboard: the active Claude account's headroom gauge at 79%, two standby accounts, the Codex quota panel, and the auto-swap settings">
-      <figcaption>The active account's binding window up top, standby accounts below, Codex and auto-swap on the right.</figcaption>
+    <figure class="shot" id="demo">
+      <video id="demo-video" src="demo.mp4" poster="demo.jpg" width="1920" height="1080" controls muted loop playsinline preload="metadata"
+             aria-label="22-second demo: the active Claude account reaches its 90% swap line and auto-swap moves Claude Code to the account with the most headroom, then a Claude Code session that is waiting on you arrives as an iMessage"></video>
+      <figcaption>22 seconds, with sound: auto-swap moves Claude Code to the account with room, and a waiting session texts you.</figcaption>
     </figure>
   </div>
 
@@ -353,6 +365,11 @@
           <p>One user, no server, no telemetry. Credentials live in owner-only files on your Mac; the only calls go to Anthropic's and OpenAI's own APIs.</p>
         </div>
       </div>
+      <figure class="shot">
+        <img src="screenshot.png" width="2360" height="1520" loading="lazy"
+             alt="Session Manager dashboard: the active Claude account's headroom gauge at 79%, two standby accounts, the Codex quota panel, and the auto-swap settings">
+        <figcaption>The active account's binding window up top, standby accounts below, Codex and auto-swap on the right.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -461,5 +478,13 @@
   </div>
 </footer>
 
+<script>
+  // The demo plays muted while it is on screen; the controls unmute it. Reduced motion keeps the poster.
+  (() => {
+    const v = document.getElementById('demo-video');
+    if (!v || !('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    new IntersectionObserver(([e]) => { if (e.isIntersecting) v.play().catch(() => {}); else v.pause(); }, { threshold: 0.5 }).observe(v);
+  })();
+</script>
 </body>
 </html>

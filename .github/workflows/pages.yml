@@ -1,8 +1,8 @@
 name: Pages
 
 # Publishes the landing page in site/ to https://aneesh-iyer29.github.io/claude-session-manager/.
-# The logo, screenshot, and llms.txt are copied in at deploy time so each exists once in
-# the repo.
+# The logo, screenshot, demo video and its poster, and llms.txt are copied in at deploy time
+# so each exists once in the repo.
 on:
   push:
     branches: [main]
@@ -11,6 +11,8 @@ on:
       - 'llms.txt'
       - 'docs/logo.png'
       - 'docs/screenshot.png'
+      - 'docs/demo.mp4'
+      - 'docs/demo.jpg'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -31,7 +33,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: cp docs/logo.png docs/screenshot.png llms.txt site/
+      - run: cp docs/logo.png docs/screenshot.png docs/demo.mp4 docs/demo.jpg llms.txt site/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
