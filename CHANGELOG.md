@@ -12,6 +12,12 @@ All notable changes to Session Manager are recorded here. The format follows
   installed Mac changes. The landing page moved to
   https://aneesh-iyer29.github.io/claude-session-manager/.
 
+### Fixed
+
+- After a swap, the newly active account's card rises from its standby slot into the hero
+  slot. Before, it appeared in the hero slot, slid back toward its old standby position, and
+  snapped into place.
+
 ## [0.7.0] - 2026-09-26
 
 ### Changed

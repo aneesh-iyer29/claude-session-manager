@@ -125,7 +125,8 @@ function Dashboard({ state, now, actions, onOpenSettings }: { state: AppState; n
             <div className="section__head">
               <span className="eyebrow">Active</span>
             </div>
-            {active ? <HeroCard account={active} settings={state.settings} now={now} actions={actions} nudge={state.nudge.pending} /> : null}
+            {/* Keyed by account: reusing one element across a swap made the new hero animate back toward its old standby slot. */}
+            {active ? <HeroCard key={active.id} account={active} settings={state.settings} now={now} actions={actions} nudge={state.nudge.pending} /> : null}
             {!active && state.accounts.length === 0 ? <EmptyState actions={actions} login={login} /> : null}
             {!active && state.accounts.length > 0 ? (
               <div className="card">
