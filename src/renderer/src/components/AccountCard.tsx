@@ -1,13 +1,14 @@
 import { motion } from 'motion/react'
 import type { Account, Settings } from '@shared/types'
 import type { Actions } from '../hooks/useActions'
-import { formatClock, formatPlan, gatingSwapLine, secondaryWindows } from '../lib/format'
+import { displayName, formatClock, formatPlan, gatingSwapLine, secondaryWindows } from '../lib/format'
 import { spring } from '../lib/motion'
 import { Button } from './Button'
 import { Gauge } from './Gauge'
 import { TokenBadge } from './HeroCard'
 import { MeterRow } from './Meter'
 import { NameEdit } from './NameEdit'
+import { ResetRow } from './ResetRow'
 import { RemoveButton } from './RemoveButton'
 
 interface Props {
@@ -62,6 +63,14 @@ export function AccountCard({ account, settings, now, actions }: Props) {
           {usage.error} · numbers from {formatClock(usage.fetchedAt)}
         </p>
       ) : null}
+
+      <ResetRow
+        resets={usage?.resets}
+        owner={displayName(account)}
+        now={now}
+        busy={actions.busy.has(`reset:${account.id}`)}
+        onRedeem={(creditId) => actions.redeemReset(account, creditId)}
+      />
 
       <div className="card__actions">
         <Button variant="primary" size="sm" disabled={switching || dead} onClick={() => actions.switchTo(account)} title={dead ? 'Log in again to use this account' : undefined}>

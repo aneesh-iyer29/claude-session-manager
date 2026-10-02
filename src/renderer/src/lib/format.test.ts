@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  resetEffect,
+  spendableReset,
   bindingWindowOf,
   displayName,
   formatAgo,
@@ -178,5 +180,22 @@ describe('weekly gate', () => {
     expect(weeklyGateLabel({ model: 'Fable', weeklyGate: 'model' })).toBe('Fable')
     expect(weeklyGateLabel({ model: 'Fable', weeklyGate: 'both' })).toBe('all models and Fable')
     expect(weeklyGateLabel({ model: ' ', weeklyGate: 'model' })).toBe('model')
+  })
+})
+
+describe('limit resets', () => {
+  it('describes what a reset clears', () => {
+    expect(resetEffect(['five_hour', 'seven_day', 'seven_day_overage_included'])).toBe('The 5-hour and weekly limits go back to full right away.')
+    expect(resetEffect(['seven_day'])).toBe('The weekly limit goes back to full right away.')
+    expect(resetEffect([])).toBe('The usage limits go back to full right away.')
+    expect(resetEffect(['something_new'])).toBe('The usage limits go back to full right away.')
+  })
+
+  it('picks the first credit the provider would spend', () => {
+    const credit = (id: string | null) => ({ id, title: null, count: 1, expiresAt: null, clears: [] })
+    expect(spendableReset({ available: 2, cooldownUntil: null, credits: [credit(null), credit('b')] })?.id).toBe('b')
+    expect(spendableReset({ available: 1, cooldownUntil: null, credits: [credit(null)] })).toBeNull()
+    expect(spendableReset(null)).toBeNull()
+    expect(spendableReset(undefined)).toBeNull()
   })
 })

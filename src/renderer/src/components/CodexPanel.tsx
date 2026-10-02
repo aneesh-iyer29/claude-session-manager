@@ -3,6 +3,7 @@ import type { Actions } from '../hooks/useActions'
 import { formatAgo, formatPlan } from '../lib/format'
 import { MeterRow } from './Meter'
 import { RefreshButton } from './RefreshButton'
+import { ResetRow } from './ResetRow'
 
 interface Props {
   codex: CodexState
@@ -11,7 +12,8 @@ interface Props {
 }
 
 /**
- * Read-only quota for the one Codex login. Nothing here switches anything.
+ * Quota for the one Codex login. Nothing here switches anything; the only
+ * write is spending a banked limit reset, behind a confirmation.
  * The header's Refresh re-fetches only Codex, so after `codex login` the new
  * account shows up without waiting for the next poll; the toolbar's Refresh
  * leaves Codex alone. Hiding the panel is a setting (Settings → General), and
@@ -30,13 +32,13 @@ export function CodexPanel({ codex, now, actions }: Props) {
         </div>
       </div>
       <div className="card">
-        <CodexBody codex={codex} now={now} />
+        <CodexBody codex={codex} now={now} actions={actions} />
       </div>
     </section>
   )
 }
 
-function CodexBody({ codex, now }: { codex: CodexState; now: Date }) {
+function CodexBody({ codex, now, actions }: { codex: CodexState; now: Date; actions: Actions }) {
   if (!codex.configured)
     return (
       <p className="card__note" style={{ marginTop: 0 }}>
@@ -64,6 +66,15 @@ function CodexBody({ codex, now }: { codex: CodexState; now: Date }) {
       ) : (
         <p className="card__note card__note--danger">{usage?.error ?? 'Usage not fetched yet'}</p>
       )}
+      {usage?.ok ? (
+        <ResetRow
+          resets={usage.resets}
+          owner="Codex"
+          now={now}
+          busy={actions.busy.has('reset:codex')}
+          onRedeem={(creditId) => actions.redeemCodexReset(creditId)}
+        />
+      ) : null}
     </>
   )
 }

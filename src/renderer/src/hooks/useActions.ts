@@ -37,6 +37,10 @@ export interface Actions {
   uninstallSessionHooks: () => Promise<boolean>
   /** Busy under `test-alert`. */
   sendTestAlert: () => Promise<boolean>
+  /** Spend one banked limit reset. Busy under `reset:<accountId>`. */
+  redeemReset: (account: Account, creditId: string) => Promise<boolean>
+  /** Busy under `reset:codex`. */
+  redeemCodexReset: (creditId: string) => Promise<boolean>
 }
 
 export function useActions(): Actions {
@@ -105,6 +109,10 @@ export function useActions(): Actions {
       installSessionHooks: () => run('sessions-hook', () => api.installSessionHooks(), 'Session hooks installed in Claude Code'),
       uninstallSessionHooks: () => run('sessions-hook', () => api.uninstallSessionHooks(), 'Session hooks removed'),
       sendTestAlert: () => run('test-alert', () => api.sendTestAlert(), 'Test iMessage sent'),
+      redeemReset: (a, creditId) =>
+        run(`reset:${a.id}`, () => api.redeemReset(a.id, creditId), `Used a reset on ${displayName(a)}; limits are back to full`),
+      redeemCodexReset: (creditId) =>
+        run('reset:codex', () => api.redeemCodexReset(creditId), 'Used a Codex reset; limits are back to full'),
     }
   }, [busy, run])
 }
