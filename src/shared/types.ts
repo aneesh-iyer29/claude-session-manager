@@ -25,6 +25,36 @@ export interface Usage {
   windows: UsageWindow[]
   /** Subscription tier as reported by the provider ("max", "pro", ...), if known. */
   plan: string | null
+  /** Banked usage-limit resets. Absent or null when the provider reported none (or the account is not eligible). */
+  resets?: ResetCredits | null
+}
+
+/**
+ * Banked usage-limit resets on one account. Providers hand these out now and
+ * then (a model launch, an outage make-good); spending one puts the 5-hour
+ * and/or weekly limits back to full at once. They expire if left unused.
+ */
+export interface ResetCredits {
+  /** Resets banked across every entry. */
+  available: number
+  /** Soonest expiry first. */
+  credits: ResetCredit[]
+  /** ISO time a cooldown between redemptions ends, or null when there is none. */
+  cooldownUntil: string | null
+}
+
+/** One grant of resets. A Claude grant can bank several; a Codex credit is always one. */
+export interface ResetCredit {
+  /** What the redeem call takes. Null when the reset is shown but the provider would not spend it right now. */
+  id: string | null
+  /** The provider's name for the grant, e.g. "Claude Opus 5.5 launch", or null. */
+  title: string | null
+  /** Resets left in this grant, >= 1. */
+  count: number
+  /** ISO time the unused reset lapses, or null when the provider does not say. */
+  expiresAt: string | null
+  /** Window keys it puts back to full (`five_hour`, `seven_day`, ...); empty when the provider does not say. */
+  clears: string[]
 }
 
 export type TokenStatus = 'ok' | 'expired' | 'dead' | 'unknown'

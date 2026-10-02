@@ -3,7 +3,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { CLIENT_ID, TOKEN_URL, USAGE_URL, jwtClaims, maybeRefresh, needsRefresh, normalizeUsage, readAuth, snapshot, type CodexAuth, type FetchFn } from './codex'
+import {
+  ANY_CREDIT,
+  CLIENT_ID,
+  CONSUME_URL,
+  RESET_CREDITS_URL,
+  TOKEN_URL,
+  USAGE_URL,
+  jwtClaims,
+  maybeRefresh,
+  needsRefresh,
+  normalizeResetCredits,
+  normalizeUsage,
+  readAuth,
+  redeemReset,
+  snapshot,
+  type CodexAuth,
+  type FetchFn,
+} from './codex'
 
 const NOW = new Date('2026-09-04T18:00:00Z')
 const FAR_FUTURE = new Date('2100-01-01T00:00:00Z')
@@ -197,8 +214,10 @@ describe('snapshot', () => {
   it('fetches usage for chatgpt mode and surfaces failures without throwing', async () => {
     writeAuth(chatgptAuth())
     let headers: Record<string, string> = {}
+    const urls: string[] = []
     const ok: FetchFn = async (url, init) => {
-      expect(String(url)).toBe(USAGE_URL)
+      urls.push(String(url))
+      if (String(url) === RESET_CREDITS_URL) return new Response(JSON.stringify({ credits: [{ id: 'c1', status: 'available' }] }), { status: 200 })
       headers = init?.headers as Record<string, string>
       return new Response(JSON.stringify({ plan_type: 'pro', rate_limit: { primary_window: { used_percent: 10 } } }), { status: 200 })
     }
@@ -209,6 +228,8 @@ describe('snapshot', () => {
     expect(snap.usage!.windows[0]!.key).toBe('five_hour')
     expect(headers['ChatGPT-Account-ID']).toBe('acct-1')
     expect(headers.originator).toBe('codex_cli_rs')
+    expect(urls.sort()).toEqual([RESET_CREDITS_URL, USAGE_URL].sort())
+    expect(snap.usage!.resets?.credits.map((c) => c.id)).toEqual(['c1'])
 
     const offline: FetchFn = async () => {
       throw new Error('offline')
@@ -221,5 +242,77 @@ describe('snapshot', () => {
     const expired: FetchFn = async () => new Response('', { status: 401 })
     const dead = await snapshot({ path: authPath, fetchFn: expired, now: NOW })
     expect(dead.usage!.error).toContain('codex login')
+  })
+})
+
+describe('normalizeResetCredits', () => {
+  it('keeps available credits, soonest expiry first, and reads every expiry spelling', () => {
+    const r = normalizeResetCredits(
+      {
+        available_count: 3,
+        credits: [
+          { id: 'late', status: 'available', expires_at: '2026-10-30T00:00:00Z', title: 'Make-good' },
+          { id: 'soon', status: 'AVAILABLE', expires_at: Date.parse('2026-09-10T00:00:00Z') / 1000 },
+          { credit_id: 'nostatus' },
+          { id: 'used', status: 'redeemed' },
+          { id: 'gone', status: 'available', expires_at: '2026-09-01T00:00:00Z' },
+          { status: 'available' },
+        ],
+      },
+      null,
+      NOW,
+    )!
+    expect(r.credits.map((c) => [c.id, c.expiresAt, c.title])).toEqual([
+      ['soon', '2026-09-10T00:00:00Z', null],
+      ['late', '2026-10-30T00:00:00Z', 'Make-good'],
+      ['nostatus', null, null],
+    ])
+    expect(r.available).toBe(3)
+  })
+
+  it('falls back to the usage body count, and is null when neither says', () => {
+    const fallback = normalizeResetCredits(null, { rate_limit_reset_credits: { available_count: 2 } }, NOW)!
+    expect(fallback.available).toBe(2)
+    expect(fallback.credits).toEqual([{ id: ANY_CREDIT, title: null, count: 2, expiresAt: null, clears: [] }])
+    expect(normalizeResetCredits(null, { rate_limit_reset_credits: { available_count: 0 } }, NOW)!.credits).toEqual([])
+    expect(normalizeResetCredits(null, {}, NOW)).toBeNull()
+    expect(normalizeResetCredits({ credits: [] }, {}, NOW)).toEqual({ available: 0, credits: [], cooldownUntil: null })
+  })
+})
+
+describe('redeemReset', () => {
+  const auth: CodexAuth = { mode: 'chatgpt', accessToken: 'tok', accountId: 'acct-1', path: '/nowhere' }
+  const answer =
+    (body: unknown, status = 200): FetchFn =>
+    async () =>
+      new Response(JSON.stringify(body), { status })
+
+  it('posts the credit and idempotency key once', async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({ code: 'reset', windows_reset: 2 }), { status: 200 })
+    }
+    expect(await redeemReset(auth, 'c1', 'req-1', fetchFn)).toEqual({ cleared: 2 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe(CONSUME_URL)
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ credit_id: 'c1', redeem_request_id: 'req-1' })
+    const headers = calls[0]!.init?.headers as Record<string, string>
+    expect(headers.Authorization).toBe('Bearer tok')
+    expect(headers['ChatGPT-Account-ID']).toBe('acct-1')
+
+    await redeemReset(auth, ANY_CREDIT, 'req-2', fetchFn)
+    expect(JSON.parse(String(calls[1]!.init?.body))).toEqual({ redeem_request_id: 'req-2' })
+  })
+
+  it('maps the answer codes', async () => {
+    expect(await redeemReset(auth, 'c', 'r', answer({ code: 'already_redeemed' }))).toEqual({ cleared: 0 })
+    expect(await redeemReset(auth, 'c', 'r', answer({ windows_reset: 1 }))).toEqual({ cleared: 1 })
+    await expect(redeemReset(auth, 'c', 'r', answer({ code: 'nothing_to_reset' }))).rejects.toThrow(/kept for later/)
+    await expect(redeemReset(auth, 'c', 'r', answer({ code: 'no_credit' }))).rejects.toThrow(/no reset/)
+    await expect(redeemReset(auth, 'c', 'r', answer({}))).rejects.toThrow(/refresh to check/)
+    await expect(redeemReset(auth, 'c', 'r', answer({}, 401))).rejects.toThrow(/codex login/)
+    await expect(redeemReset(auth, 'c', 'r', answer({}, 500))).rejects.toThrow(/was not used/)
+    await expect(redeemReset({ mode: 'apikey', path: '/x' }, 'c', 'r', answer({}))).rejects.toThrow(/not logged in/)
   })
 })

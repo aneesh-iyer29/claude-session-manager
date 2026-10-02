@@ -15,8 +15,11 @@ import {
   fetchUsage,
   identityFromProfile,
   isExpired,
+  normalizeResets,
   normalizeUsage,
+  redeemReset,
   refreshCredentials,
+  resetUrl,
   startLoginFlow,
   type FetchFn,
 } from './claudeOauth'
@@ -170,6 +173,151 @@ describe('fetchUsage error classification', () => {
     expect(seen.Authorization).toBe('Bearer secret-token')
     expect(seen['anthropic-beta']).toBe('oauth-2025-04-20')
     expect(seen['anthropic-version']).toBe('2023-06-01')
+  })
+})
+
+const NOW = new Date('2026-10-02T12:00:00Z')
+
+/** The block Anthropic answers with for an account holding the Opus 5.5 launch reset. */
+const EMBER = {
+  eligible: true,
+  ineligible_reason: null,
+  grants: [
+    {
+      id: 'opus55-launch-promax-20260921',
+      label: 'Claude Opus 5.5 launch',
+      resets_total: 1,
+      resets_left: 1,
+      ends_at: '2026-10-22T16:00:00+00:00',
+      clears: ['five_hour', 'seven_day'],
+      paused: false,
+      usable_now: true,
+    },
+  ],
+  next_grant_id: 'opus55-launch-promax-20260921',
+  cooldown_until: null,
+}
+
+describe('normalizeResets', () => {
+  it('offers the grant the server names as spendable', () => {
+    expect(normalizeResets(EMBER, NOW)).toEqual({
+      available: 1,
+      cooldownUntil: null,
+      credits: [
+        {
+          id: 'opus55-launch-promax-20260921',
+          title: 'Claude Opus 5.5 launch',
+          count: 1,
+          expiresAt: '2026-10-22T16:00:00.000Z',
+          clears: ['five_hour', 'seven_day'],
+        },
+      ],
+    })
+  })
+
+  it('is null when the account is not eligible or the block is missing', () => {
+    expect(normalizeResets({ ...EMBER, eligible: false }, NOW)).toBeNull()
+    expect(normalizeResets(null, NOW)).toBeNull()
+    expect(normalizeResets('x', NOW)).toBeNull()
+  })
+
+  it('shows grants it cannot spend without an id', () => {
+    const grant = EMBER.grants[0]!
+    const ids = (block: unknown): Array<string | null> => normalizeResets(block, NOW)!.credits.map((c) => c.id)
+    expect(ids({ ...EMBER, next_grant_id: null })).toEqual([null])
+    expect(ids({ ...EMBER, grants: [{ ...grant, paused: true }] })).toEqual([null])
+    expect(ids({ ...EMBER, grants: [{ ...grant, usable_now: false }] })).toEqual([null])
+    expect(ids({ ...EMBER, grants: [{ ...grant, id: 'Bad Id!' }], next_grant_id: 'Bad Id!' })).toEqual([null])
+    const cooling = normalizeResets({ ...EMBER, cooldown_until: '2026-10-02T13:00:00Z' }, NOW)!
+    expect(cooling.credits[0]!.id).toBeNull()
+    expect(cooling.cooldownUntil).toBe('2026-10-02T13:00:00.000Z')
+    // A cooldown already over does not count.
+    expect(normalizeResets({ ...EMBER, cooldown_until: '2026-10-01T00:00:00Z' }, NOW)!.cooldownUntil).toBeNull()
+  })
+
+  it('drops used-up, expired and malformed grants, counts banked ones, and sorts by expiry', () => {
+    const r = normalizeResets(
+      {
+        eligible: true,
+        next_grant_id: 'b',
+        grants: [
+          { id: 'a', resets_total: 3, resets_left: 9, ends_at: '2026-11-01T00:00:00Z' },
+          { id: 'b', resets_total: 1, resets_left: 1, ends_at: '2026-10-05T00:00:00Z', usable_now: true },
+          { id: 'c', resets_total: 1, resets_left: 0, ends_at: '2026-10-05T00:00:00Z' },
+          { id: 'd', resets_total: 1, resets_left: 1, ends_at: '2026-10-01T00:00:00Z' },
+          { id: 'e', resets_total: 1, resets_left: 1, ends_at: 'soon' },
+          { id: '', resets_total: 1, resets_left: 1, ends_at: '2026-10-05T00:00:00Z' },
+          'garbage',
+        ],
+      },
+      NOW,
+    )!
+    expect(r.available).toBe(4)
+    expect(r.credits.map((c) => [c.id, c.count])).toEqual([
+      ['b', 1],
+      [null, 3],
+    ])
+  })
+
+  it('rides along on normalizeUsage', () => {
+    expect(normalizeUsage({ ...RAW_USAGE, cedar_ember: EMBER }, 'Fable', null, NOW).resets?.available).toBe(1)
+    expect(normalizeUsage(RAW_USAGE).resets).toBeNull()
+  })
+})
+
+describe('fetchUsage', () => {
+  it('asks for the reset block as Claude Code', async () => {
+    let seen = ''
+    let ua = ''
+    const fetchFn: FetchFn = async (url, init) => {
+      seen = String(url)
+      ua = (init?.headers as Record<string, string>)['User-Agent'] ?? ''
+      return jsonResponse(RAW_USAGE)
+    }
+    await fetchUsage('t', fetchFn)
+    expect(seen).toBe('https://api.anthropic.com/api/oauth/usage?cedar_ember=1')
+    expect(ua).toMatch(/^claude-cli\//)
+  })
+})
+
+describe('redeemReset', () => {
+  const answer =
+    (body: unknown, status = 200): FetchFn =>
+    async () =>
+      jsonResponse(body, status)
+
+  it('posts once to the org with the grant and idempotency key', async () => {
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = []
+    const fetchFn: FetchFn = async (url, init) => {
+      calls.push({ url: String(url), init })
+      return jsonResponse({ result: 'reset', cleared: ['five_hour', 'seven_day'] })
+    }
+    expect(await redeemReset('tok', 'org-1', 'grant-1', 'req-1', fetchFn)).toEqual({ cleared: 2 })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.url).toBe(resetUrl('org-1'))
+    expect(calls[0]!.url).toBe('https://api.anthropic.com/api/organizations/org-1/reset_rate_limits')
+    expect(calls[0]!.init?.method).toBe('POST')
+    expect(JSON.parse(String(calls[0]!.init?.body))).toEqual({ program: 'cedar_ember', grant_id: 'grant-1', request_id: 'req-1' })
+    expect((calls[0]!.init?.headers as Record<string, string>).Authorization).toBe('Bearer tok')
+  })
+
+  it('treats a replayed key as spent and everything else as not spent', async () => {
+    expect(await redeemReset('t', 'o', 'g', 'r', answer({ result: 'already_used' }))).toEqual({ cleared: 0 })
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({ result: 'not_limited' }))).rejects.toThrow(/kept for later/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({ result: 'cooldown' }))).rejects.toThrow(/cooling down/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({ result: 'ineligible' }))).rejects.toThrow(/no reset/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({ result: 'mystery' }))).rejects.toThrow(/refresh to check/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({}, 429))).rejects.toThrow(/Rate limited/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({}, 401))).rejects.toThrow(/rejected the token/)
+    await expect(redeemReset('t', 'o', 'g', 'r', answer({}, 500))).rejects.toThrow(/was not used/)
+  })
+
+  it('refuses ids that did not come from the server without a network call', async () => {
+    const noNetwork: FetchFn = async () => {
+      throw new Error('no network call expected')
+    }
+    await expect(redeemReset('t', 'org', 'Bad Id', 'r', noNetwork)).rejects.toThrow(/not one Claude offered/)
+    await expect(redeemReset('t', '../x', 'g', 'r', noNetwork)).rejects.toThrow(/no organization/)
   })
 })
 

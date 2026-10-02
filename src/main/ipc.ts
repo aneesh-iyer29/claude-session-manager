@@ -100,6 +100,8 @@ export function registerIpc(daemon: Daemon): void {
   handle(IPC.installSessionHooks, () => daemon.installSessionHooks())
   handle(IPC.uninstallSessionHooks, () => daemon.uninstallSessionHooks())
   handle(IPC.sendTestAlert, () => daemon.sendTestAlert())
+  handle(IPC.redeemReset, (id, creditId) => daemon.redeemReset(str(id, 'accountId'), str(creditId, 'creditId')))
+  handle(IPC.redeemCodexReset, (creditId) => daemon.redeemCodexReset(str(creditId, 'creditId')))
 }
 
 /** Push a state snapshot to every live window; the renderer never polls. */

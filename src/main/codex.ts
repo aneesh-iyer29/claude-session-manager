@@ -9,13 +9,20 @@
 import { closeSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
-import type { CodexMode, CodexState, Usage, UsageWindow } from '../shared/types'
+import type { CodexMode, CodexState, ResetCredit, ResetCredits, Usage, UsageWindow } from '../shared/types'
 import { codexAuthPath } from './paths'
 import { utcNowIso } from './store'
 
 export const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
 export const TOKEN_URL = 'https://auth.openai.com/oauth/token'
 export const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage'
+export const RESET_CREDITS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits'
+export const CONSUME_URL = `${RESET_CREDITS_URL}/consume`
+/**
+ * The credit id used when only a count is known (the credits list did not
+ * answer): consume then goes out without a `credit_id` and the server picks.
+ */
+export const ANY_CREDIT = 'next'
 export const AUTH_CLAIM = 'https://api.openai.com/auth'
 export const REFRESH_LEAD_MS = 30 * 60 * 1000
 export const TIMEOUT_MS = 10_000
@@ -185,8 +192,8 @@ export async function maybeRefresh(auth: CodexAuth, fetchFn: FetchFn = fetch, no
   return next
 }
 
-/** Raw `wham/usage` payload with the headers the Codex CLI sends. */
-export async function fetchUsage(auth: CodexAuth, fetchFn: FetchFn = fetch): Promise<unknown> {
+/** The headers the Codex CLI sends to the ChatGPT backend. */
+function backendHeaders(auth: CodexAuth): Record<string, string> {
   if (auth.mode !== 'chatgpt' || !auth.accessToken) throw new CodexError('codex is not logged in with ChatGPT')
   const headers: Record<string, string> = {
     Authorization: `Bearer ${auth.accessToken}`,
@@ -195,6 +202,12 @@ export async function fetchUsage(auth: CodexAuth, fetchFn: FetchFn = fetch): Pro
     originator: 'codex_cli_rs',
   }
   if (auth.accountId) headers['ChatGPT-Account-ID'] = auth.accountId
+  return headers
+}
+
+/** Raw `wham/usage` payload with the headers the Codex CLI sends. */
+export async function fetchUsage(auth: CodexAuth, fetchFn: FetchFn = fetch): Promise<unknown> {
+  const headers = backendHeaders(auth)
   const res = await fetchFn(USAGE_URL, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) })
   if (!res.ok) {
     const msg = res.status === 401 || res.status === 403 ? 'codex login expired; run `codex login`' : `HTTP ${res.status}`
@@ -281,6 +294,110 @@ export function normalizeUsage(raw: unknown, now: Date = new Date()): Usage {
   return { fetchedAt: utcNowIso(now), ok: true, error: null, windows, plan: str(r.plan_type) ?? null }
 }
 
+// -- limit resets ----------------------------------------------------------------
+
+/** Raw `wham/rate-limit-reset-credits` payload, or null when it does not answer (it is best-effort). */
+export async function fetchResetCredits(auth: CodexAuth, fetchFn: FetchFn = fetch): Promise<unknown> {
+  try {
+    const res = await fetchFn(RESET_CREDITS_URL, { headers: backendHeaders(auth), signal: AbortSignal.timeout(TIMEOUT_MS) })
+    return res.ok ? await res.json() : null
+  } catch {
+    return null
+  }
+}
+
+/** Epoch seconds, epoch ms, or an ISO string → ISO, or null. */
+function expiryIso(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return iso(value < 1e12 ? value * 1000 : value)
+  if (typeof value === 'string' && value) {
+    const ms = Date.parse(value)
+    return Number.isFinite(ms) ? iso(ms) : null
+  }
+  return null
+}
+
+/**
+ * The credits list → banked resets, soonest expiry first. When the list did
+ * not answer, the usage body's bare `rate_limit_reset_credits.available_count`
+ * stands in as one entry the server picks from. Null when neither says.
+ */
+export function normalizeResetCredits(list: unknown, usage: unknown, now: Date = new Date()): ResetCredits | null {
+  const doc = isRecord(list) ? list : null
+  if (doc && Array.isArray(doc.credits)) {
+    const credits: ResetCredit[] = []
+    for (const c of doc.credits) {
+      if (!isRecord(c)) continue
+      // Some tenants omit status even when the count says credits exist.
+      if (typeof c.status === 'string' && c.status.toLowerCase() !== 'available') continue
+      const id = str(c.id) ?? str(c.credit_id)
+      if (!id) continue
+      const expiresAt = expiryIso(c.expires_at)
+      if (expiresAt && Date.parse(expiresAt) <= now.getTime()) continue
+      credits.push({ id, title: str(c.title) ?? null, count: 1, expiresAt, clears: [] })
+    }
+    credits.sort((a, b) => (a.expiresAt ? Date.parse(a.expiresAt) : Infinity) - (b.expiresAt ? Date.parse(b.expiresAt) : Infinity))
+    return { available: credits.length, credits, cooldownUntil: null }
+  }
+  const u = isRecord(usage) ? usage : {}
+  const block = isRecord(u.rate_limit_reset_credits) ? u.rate_limit_reset_credits : null
+  const count = block?.available_count
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return null
+  const n = Math.trunc(count)
+  return {
+    available: n,
+    credits: n > 0 ? [{ id: ANY_CREDIT, title: null, count: n, expiresAt: null, clears: [] }] : [],
+    cooldownUntil: null,
+  }
+}
+
+/** What a consume that went through did. Anything that spent nothing is thrown instead. */
+export interface RedeemResult {
+  /** How many windows the server put back to full. */
+  cleared: number
+}
+
+/**
+ * Spend one reset credit. Sent exactly once, never retried: `requestId` is the
+ * idempotency key, so a retry with the same key lands as `already_redeemed`
+ * instead of spending a second credit. Throws a user-safe message when nothing
+ * was spent.
+ */
+export async function redeemReset(auth: CodexAuth, creditId: string, requestId: string, fetchFn: FetchFn = fetch): Promise<RedeemResult> {
+  const headers = { ...backendHeaders(auth), 'Content-Type': 'application/json' }
+  const body: Record<string, string> = { redeem_request_id: requestId }
+  if (creditId !== ANY_CREDIT) body.credit_id = creditId
+  let res: Response
+  try {
+    res = await fetchFn(CONSUME_URL, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) })
+  } catch {
+    throw new CodexError('Could not reach ChatGPT; the reset may not have gone through. Refresh to check.')
+  }
+  if (res.status === 401 || res.status === 403) throw new CodexError('codex login expired; run `codex login`')
+  if (res.status === 429) throw new CodexError('Rate limited by ChatGPT; try again in a few minutes')
+  if (!res.ok) throw new CodexError(`ChatGPT error ${res.status}; the reset was not used`)
+  let raw: unknown
+  try {
+    raw = await res.json()
+  } catch {
+    raw = {}
+  }
+  const r = isRecord(raw) ? raw : {}
+  const cleared = typeof r.windows_reset === 'number' && Number.isFinite(r.windows_reset) ? r.windows_reset : 0
+  switch (r.code) {
+    case 'reset':
+    case 'already_redeemed': // the idempotency key landing twice: it was spent, by this request
+      return { cleared }
+    case 'nothing_to_reset':
+      throw new CodexError('Codex usage is not high enough to need a reset yet; it was kept for later')
+    case 'no_credit':
+      throw new CodexError('Codex has no reset to use')
+    default:
+      // An older response shape carried no code; windows put back to full is the proof.
+      if (r.code === undefined && cleared > 0) return { cleared }
+      throw new CodexError('ChatGPT answered in a way Session Manager does not understand; refresh to check whether the reset was used')
+  }
+}
+
 export interface SnapshotOptions {
   fetchFn?: FetchFn
   path?: string
@@ -302,7 +419,8 @@ export async function snapshot(opts: SnapshotOptions = {}): Promise<CodexState> 
   if (auth.mode === 'apikey') return configured
   try {
     auth = await maybeRefresh(auth, opts.fetchFn, now)
-    const usage = normalizeUsage(await fetchUsage(auth, opts.fetchFn), now)
+    const [raw, list] = await Promise.all([fetchUsage(auth, opts.fetchFn), fetchResetCredits(auth, opts.fetchFn)])
+    const usage = { ...normalizeUsage(raw, now), resets: normalizeResetCredits(list, raw, now) }
     return { ...configured, email: auth.email ?? null, plan: usage.plan ?? auth.plan ?? null, usage }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

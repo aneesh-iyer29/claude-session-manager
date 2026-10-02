@@ -58,6 +58,12 @@ interface Harness {
   idle: { seconds: number | null }
   /** When set, sendText rejects with this message. */
   sendError: { message: string | null }
+  /** The `cedar_ember` block served with every usage answer; undefined leaves it out. */
+  ember: { value: unknown }
+  /** Bodies POSTed to reset_rate_limits, with the org from the URL and the token used. */
+  resetPosts: Array<{ org: string; token: string; body: Record<string, unknown> }>
+  /** What reset_rate_limits answers. */
+  resetAnswer: { body: unknown; status: number }
 }
 
 const CODEX: CodexState = { configured: true, mode: 'chatgpt', email: 'me@example.com', plan: 'pro', usage: null }
@@ -111,6 +117,9 @@ function harness(opts: { autoswap?: boolean; cred2?: string } = {}): Harness {
     texts: [],
     idle: { seconds: 3600 },
     sendError: { message: null },
+    ember: { value: undefined },
+    resetPosts: [],
+    resetAnswer: { body: { result: 'reset', cleared: ['five_hour', 'seven_day'] }, status: 200 },
   }
 
   const fetchFn: typeof fetch = async (input, init) => {
@@ -120,7 +129,13 @@ function harness(opts: { autoswap?: boolean; cred2?: string } = {}): Harness {
     if (url.includes('/api/oauth/usage')) {
       const pct = h.fable.get(token)
       if (pct === undefined) return json({ error: 'unauthorized' }, 401)
-      return json(usageBody(pct, h.weeklyReset.get(token)))
+      const body = usageBody(pct, h.weeklyReset.get(token)) as Record<string, unknown>
+      return json(h.ember.value === undefined ? body : { ...body, cedar_ember: h.ember.value })
+    }
+    const reset = /\/api\/organizations\/([^/]+)\/reset_rate_limits$/.exec(url)
+    if (reset) {
+      h.resetPosts.push({ org: reset[1] as string, token, body: JSON.parse(String(init?.body)) as Record<string, unknown> })
+      return json(h.resetAnswer.body, h.resetAnswer.status)
     }
     if (url.includes('/v1/oauth/token')) {
       h.refreshes += 1
@@ -891,5 +906,127 @@ describe('settings: swap lines', () => {
     expect(state.activeId).toBe('acc_2')
     expect(state.autoswap.lastDecision?.action).toBe('switch')
     expect(state.autoswap.lastDecision?.reason).toContain('five_hour at 91% >= 90%')
+  })
+})
+
+describe('limit resets', () => {
+  const GRANT = 'opus55-launch-promax-20260921'
+  const ember = (left = 1): unknown => ({
+    eligible: true,
+    next_grant_id: left > 0 ? GRANT : null,
+    grants: [{ id: GRANT, label: 'Opus 5.5 launch', resets_total: 1, resets_left: left, ends_at: '2026-10-22T16:00:00Z', usable_now: true, clears: ['five_hour', 'seven_day'] }],
+    cooldown_until: null,
+  })
+
+  it('tracks banked resets per account', async () => {
+    const h = harness()
+    h.ember.value = ember()
+    const state = await h.daemon.refresh()
+    for (const acc of state.accounts) {
+      expect(acc.usage?.resets?.available).toBe(1)
+      expect(acc.usage?.resets?.credits[0]?.id).toBe(GRANT)
+    }
+  })
+
+  it('spends one reset on the standby account, logs it and re-fetches its usage', async () => {
+    const h = harness()
+    h.ember.value = ember()
+    await h.daemon.refresh()
+    h.ember.value = ember(0)
+    const state = await h.daemon.redeemReset('acc_2', GRANT)
+    expect(h.resetPosts).toHaveLength(1)
+    expect(h.resetPosts[0]!.org).toBe('org-acc_2')
+    expect(h.resetPosts[0]!.token).toBe('tok-2')
+    expect(h.resetPosts[0]!.body).toMatchObject({ program: 'cedar_ember', grant_id: GRANT })
+    expect(typeof h.resetPosts[0]!.body.request_id).toBe('string')
+    expect(state.accounts.find((a) => a.id === 'acc_2')!.usage?.resets?.available).toBe(0)
+    expect(state.events[0]?.message).toContain('Used a limit reset on personal@example.com (Opus 5.5 launch): 2 windows back to full')
+  })
+
+  it('refuses a reset the last fetch did not offer, without a network call', async () => {
+    const h = harness()
+    h.ember.value = { ...(ember() as Record<string, unknown>), next_grant_id: null }
+    await h.daemon.refresh()
+    await expect(h.daemon.redeemReset('acc_1', GRANT)).rejects.toThrow(/no longer offered/)
+    await expect(h.daemon.redeemReset('acc_1', 'other')).rejects.toThrow(/no longer offered/)
+    expect(h.resetPosts).toHaveLength(0)
+  })
+
+  it('passes the server refusal through and keeps the reset', async () => {
+    const h = harness()
+    h.ember.value = ember()
+    await h.daemon.refresh()
+    h.resetAnswer.body = { result: 'not_limited' }
+    await expect(h.daemon.redeemReset('acc_1', GRANT)).rejects.toThrow(/kept for later/)
+    expect(h.resetPosts).toHaveLength(1)
+    expect(h.store.readEvents(5).some((e) => e.message.startsWith('Used a limit reset'))).toBe(false)
+  })
+
+  it('never refreshes the active account\'s expired token to spend a reset', async () => {
+    const h = harness()
+    h.ember.value = ember()
+    await h.daemon.refresh()
+    const expired = credential('tok-1', 'ref-1', PAST)
+    h.live.value = expired
+    h.store.writeCredential('acc_1', expired)
+    await expect(h.daemon.redeemReset('acc_1', GRANT)).rejects.toThrow(/expired/)
+    expect(h.refreshes).toBe(0)
+    expect(h.resetPosts).toHaveLength(0)
+  })
+
+  it('keeps the resets when the status line feed updates the active account, and ignores pre-reset feeds', async () => {
+    const h = harness()
+    h.ember.value = ember()
+    const home = process.env.SESSION_MANAGER_HOME as string
+    const path = join(home, 'statusline.json')
+    writeFileSync(path, JSON.stringify({ rate_limits: { five_hour: { used_percentage: 95, resets_at: 1893456000 }, seven_day: { used_percentage: 12, resets_at: 1893542400 } } }))
+    const before = new Date(h.clock.now.getTime() - 60_000)
+    utimesSync(path, before, before)
+    let state = await h.daemon.refresh()
+    let active = state.accounts.find((a) => a.id === 'acc_1')!
+    expect(active.usage?.windows.find((w) => w.key === 'five_hour')?.pct).toBe(95)
+    expect(active.usage?.resets?.available).toBe(1)
+
+    h.ember.value = ember(0)
+    state = await h.daemon.redeemReset('acc_1', GRANT)
+    active = state.accounts.find((a) => a.id === 'acc_1')!
+    // The feed was written before the reset: the endpoint's fresh 10% wins.
+    expect(active.usage?.windows.find((w) => w.key === 'five_hour')?.pct).toBe(10)
+  })
+
+  it('spends a Codex reset through the injected redeemer and re-snapshots', async () => {
+    const redeemed: Array<[string, string]> = []
+    const store = new Store(process.env.SESSION_MANAGER_HOME as string)
+    let snaps = 0
+    const withCredit: CodexState = {
+      ...CODEX,
+      usage: { fetchedAt: '2026-06-01T12:00:00Z', ok: true, error: null, windows: [], plan: 'pro', resets: { available: 1, credits: [{ id: 'c1', title: null, count: 1, expiresAt: null, clears: [] }], cooldownUntil: null } },
+    }
+    const daemon = new Daemon({
+      store,
+      version: 'test',
+      deps: {
+        fetchFn: async () => json({}, 500),
+        readActive: async () => null,
+        writeActive: async () => undefined,
+        codexSnapshot: async () => {
+          snaps += 1
+          return snaps === 1 ? withCredit : { ...withCredit, usage: { ...withCredit.usage!, resets: { available: 0, credits: [], cooldownUntil: null } } }
+        },
+        codexRedeem: async (creditId, requestId) => {
+          redeemed.push([creditId, requestId])
+          return { cleared: 1 }
+        },
+        notify: () => undefined,
+      },
+    })
+    await daemon.refreshCodex()
+    await expect(daemon.redeemCodexReset('nope')).rejects.toThrow(/no longer offered/)
+    const state = await daemon.redeemCodexReset('c1')
+    expect(redeemed).toHaveLength(1)
+    expect(redeemed[0]![0]).toBe('c1')
+    expect(snaps).toBe(2)
+    expect(state.codex.usage?.resets?.available).toBe(0)
+    expect(state.events[0]?.message).toBe('Used a Codex limit reset: 1 window back to full')
   })
 })

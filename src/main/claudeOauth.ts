@@ -9,7 +9,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 
-import type { LoginPhase, Usage, UsageWindow } from '../shared/types'
+import type { LoginPhase, ResetCredit, ResetCredits, Usage, UsageWindow } from '../shared/types'
 import { utcNowIso } from './store'
 
 export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
@@ -24,6 +24,13 @@ export const TIMEOUT_MS = 10_000
 export const EXPIRY_BUFFER_MS = 5 * 60 * 1000
 
 export type FetchFn = typeof fetch
+
+/**
+ * Anthropic only reports banked limit resets (the `cedar_ember` program) to
+ * Claude Code itself: with any other User-Agent the usage endpoint answers
+ * `eligible: false` for every token. The usage and reset calls send this one.
+ */
+export const CLAUDE_CLI_UA = 'claude-cli/2.1.280 (external, cli)'
 
 const API_HEADERS = {
   'anthropic-beta': 'oauth-2025-04-20',
@@ -102,7 +109,7 @@ function window(key: string, label: string, pct: unknown, resetsAt: unknown): Us
  * dashboard can show them all; `model` only decides which one autoswap gates
  * on and is accepted here for symmetry with the other providers.
  */
-export function normalizeUsage(raw: unknown, _model = 'Fable', plan: string | null = null): Usage {
+export function normalizeUsage(raw: unknown, _model = 'Fable', plan: string | null = null, now: Date = new Date()): Usage {
   const r = isRecord(raw) ? raw : {}
   const windows: UsageWindow[] = []
   for (const [key, label] of [
@@ -125,7 +132,49 @@ export function normalizeUsage(raw: unknown, _model = 'Fable', plan: string | nu
     const w = window(`model:${name.toLowerCase()}`, `${name} weekly`, lim.percent, lim.resets_at)
     if (w) windows.push(w)
   }
-  return { fetchedAt: utcNowIso(), ok: true, error: null, windows, plan }
+  return { fetchedAt: utcNowIso(), ok: true, error: null, windows, plan, resets: normalizeResets(r.cedar_ember, now) }
+}
+
+/** Grant ids go into a POST body; bound their shape so a malformed response cannot smuggle anything in. */
+const GRANT_ID = /^[a-z0-9_-]{1,64}$/
+
+function isoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : null
+}
+
+/**
+ * The usage payload's `cedar_ember` block → banked resets, or null when the
+ * account is not eligible. Grants are dropped the way Claude's own Settings →
+ * Usage drops them (no id, nothing left, no parseable end). Only the grant the
+ * server names in `next_grant_id` can be redeemed, and only while it says it
+ * is usable and no cooldown runs, so every other grant is shown without an id.
+ */
+export function normalizeResets(block: unknown, now: Date = new Date()): ResetCredits | null {
+  if (!isRecord(block) || block.eligible !== true) return null
+  const cooldownUntil = isoOrNull(block.cooldown_until)
+  const cooling = cooldownUntil !== null && Date.parse(cooldownUntil) > now.getTime()
+  const credits: ResetCredit[] = []
+  for (const grant of Array.isArray(block.grants) ? block.grants : []) {
+    if (!isRecord(grant)) continue
+    const id = typeof grant.id === 'string' ? grant.id : ''
+    const total = typeof grant.resets_total === 'number' ? grant.resets_total : 0
+    const left = typeof grant.resets_left === 'number' ? Math.min(Math.max(Math.trunc(grant.resets_left), 0), total) : 0
+    const expiresAt = isoOrNull(grant.ends_at)
+    if (!id || total < 1 || left < 1 || !expiresAt || Date.parse(expiresAt) <= now.getTime()) continue
+    const spendable =
+      id === block.next_grant_id && grant.usable_now === true && grant.paused !== true && !cooling && GRANT_ID.test(id)
+    credits.push({
+      id: spendable ? id : null,
+      title: typeof grant.label === 'string' && grant.label ? grant.label : null,
+      count: left,
+      expiresAt,
+      clears: Array.isArray(grant.clears) ? grant.clears.filter((c): c is string => typeof c === 'string') : [],
+    })
+  }
+  credits.sort((a, b) => Date.parse(a.expiresAt ?? '') - Date.parse(b.expiresAt ?? ''))
+  return { available: credits.reduce((n, c) => n + c.count, 0), credits, cooldownUntil: cooling ? cooldownUntil : null }
 }
 
 /** The normalized shape for a fetch that did not succeed (`ok: false`). */
@@ -175,11 +224,11 @@ function usageErrorFromResponse(res: Response): UsageError {
   return new UsageError('server', `HTTP ${status}`, { status })
 }
 
-async function getJson(url: string, accessToken: string, fetchFn: FetchFn): Promise<unknown> {
+async function getJson(url: string, accessToken: string, fetchFn: FetchFn, extra: Record<string, string> = {}): Promise<unknown> {
   let res: Response
   try {
     res = await fetchFn(url, {
-      headers: { ...API_HEADERS, Authorization: `Bearer ${accessToken}` },
+      headers: { ...API_HEADERS, ...extra, Authorization: `Bearer ${accessToken}` },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
   } catch (err) {
@@ -193,9 +242,9 @@ async function getJson(url: string, accessToken: string, fetchFn: FetchFn): Prom
   }
 }
 
-/** Raw usage payload; throws `UsageError` on any failure. */
+/** Raw usage payload, banked resets included; throws `UsageError` on any failure. */
 export function fetchUsage(accessToken: string, fetchFn: FetchFn = fetch): Promise<unknown> {
-  return getJson(USAGE_URL, accessToken, fetchFn)
+  return getJson(`${USAGE_URL}?cedar_ember=1`, accessToken, fetchFn, { 'User-Agent': CLAUDE_CLI_UA })
 }
 
 /** Raw profile payload `{account: {...}, organization: {...}}`. */
@@ -221,6 +270,70 @@ export function identityFromProfile(profile: unknown): Identity {
     orgUuid: str(org.uuid),
     orgName: str(org.name),
     accountUuid: str(account.uuid),
+  }
+}
+
+// -- limit resets ----------------------------------------------------------------
+
+export const resetUrl = (orgUuid: string): string =>
+  `https://api.anthropic.com/api/organizations/${encodeURIComponent(orgUuid)}/reset_rate_limits`
+
+/** What a reset that went through did. Anything that spent nothing is thrown instead. */
+export interface RedeemResult {
+  /** How many windows the server put back to full, when it says. */
+  cleared: number
+}
+
+/**
+ * Spend one reset from `grantId` on the organization's limits. Sent exactly
+ * once and never retried here: `requestId` is the idempotency key, so a
+ * response lost on the way back reads as `already_used` if the user tries
+ * again with the same key. Throws a user-safe message when nothing was spent.
+ */
+export async function redeemReset(
+  accessToken: string,
+  orgUuid: string,
+  grantId: string,
+  requestId: string,
+  fetchFn: FetchFn = fetch,
+): Promise<RedeemResult> {
+  if (!GRANT_ID.test(grantId)) throw new Error('That reset is not one Claude offered')
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(orgUuid)) throw new Error('This account has no organization to reset')
+  let res: Response
+  try {
+    res = await fetchFn(resetUrl(orgUuid), {
+      method: 'POST',
+      headers: { ...API_HEADERS, 'User-Agent': CLAUDE_CLI_UA, 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ program: 'cedar_ember', grant_id: grantId, request_id: requestId }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch {
+    throw new Error('Could not reach Anthropic; the reset may not have gone through. Refresh to check.')
+  }
+  if (res.status === 401 || res.status === 403) throw new Error('Anthropic rejected the token; refresh and try again')
+  if (res.status === 429) throw new Error('Rate limited by Anthropic; try again in a few minutes')
+  if (!res.ok) throw new Error(`Anthropic error ${res.status}; the reset was not used`)
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    body = {}
+  }
+  const b = isRecord(body) ? body : {}
+  const cleared = Array.isArray(b.cleared) ? b.cleared.length : 0
+  switch (b.result) {
+    case 'reset':
+    case 'already_used': // the idempotency key landing twice: it was spent, by this request
+      return { cleared }
+    case 'not_limited':
+      throw new Error('Usage is not high enough to need a reset yet; it was kept for later')
+    case 'cooldown':
+      throw new Error('Claude resets are cooling down; try again later')
+    case 'ineligible':
+    case 'unavailable':
+      throw new Error('Claude has no reset to use on this account')
+    default:
+      throw new Error('Anthropic answered in a way Session Manager does not understand; refresh to check whether the reset was used')
   }
 }
 

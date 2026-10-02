@@ -28,6 +28,8 @@ export const IPC = {
   installSessionHooks: 'swapper:installSessionHooks',
   uninstallSessionHooks: 'swapper:uninstallSessionHooks',
   sendTestAlert: 'swapper:sendTestAlert',
+  redeemReset: 'swapper:redeemReset',
+  redeemCodexReset: 'swapper:redeemCodexReset',
   /** main → renderer push, payload: AppState */
   stateChanged: 'swapper:stateChanged',
 } as const
@@ -63,6 +65,14 @@ export interface SwapperApi {
   uninstallSessionHooks(): Promise<AppState>
   /** Send a test iMessage to `settings.alertTo`. Rejects with a user-safe reason (no number set, Messages not allowed, ...). */
   sendTestAlert(): Promise<AppState>
+  /**
+   * Spend one banked usage-limit reset on a Claude account (`ResetCredit.id`). Irreversible: the
+   * renderer confirms first. Sent once, never retried. Rejects with a user-safe reason when nothing
+   * was spent (no reset left, cooling down, usage too low to need one).
+   */
+  redeemReset(accountId: string, creditId: string): Promise<AppState>
+  /** The same for the Codex login. */
+  redeemCodexReset(creditId: string): Promise<AppState>
   /** Subscribe to state pushes. Returns an unsubscribe function. */
   onState(callback: (state: AppState) => void): () => void
 }
