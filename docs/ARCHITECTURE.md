@@ -2,8 +2,8 @@
 
 Session Manager is a macOS Electron app. It watches the usage limits of several Claude Code
 accounts, swaps the active account before its 5-hour session (or the weekly window you chose:
-all models, Fable, or the tighter of the two) throttles it, shows the one Codex account's quota
-read-only, and can text you over iMessage when a Claude Code session is waiting on you. It is
+all models, Fable, or the tighter of the two) throttles it, shows the one Codex account's quota,
+spends banked usage-limit resets on either provider when you confirm, and can text you over iMessage when a Claude Code session is waiting on you. It is
 deliberately narrow: **many Claude accounts, one Codex account, the session plus one weekly
 axis that gate swapping.**
 
@@ -30,7 +30,7 @@ axis that gate swapping.**
 │  switcher.ts ──► keychain.ts (/usr/bin/security)  claudeLocks.ts       │
 │              └─► ~/.claude.json oauthAccount                           │
 │  claudeOauth.ts  usage / profile / refresh / PKCE login (port 54545)   │
-│  codex.ts        ~/.codex/auth.json → wham/usage                       │
+│  codex.ts        ~/.codex/auth.json → wham/usage, reset credits        │
 │  autoswap.ts     pure decision policy                                  │
 │  sessions.ts     session hooks → <dataDir>/sessions/*.json + state     │
 │  attention.ts    pure alert policy: which waiting sessions to text     │
@@ -104,11 +104,14 @@ Codex `~/.codex/auth.json` has two modes:
 
 | Provider | Purpose | Request |
 | --- | --- | --- |
-| Claude | usage | `GET https://api.anthropic.com/api/oauth/usage` with `Authorization: Bearer <access>`, `anthropic-beta: oauth-2025-04-20`, `anthropic-version: 2023-06-01` |
+| Claude | usage | `GET https://api.anthropic.com/api/oauth/usage?cedar_ember=1` with `Authorization: Bearer <access>`, `anthropic-beta: oauth-2025-04-20`, `anthropic-version: 2023-06-01`, `User-Agent: claude-cli/2.1.280 (external, cli)` (Anthropic reports banked resets only to Claude Code's User-Agent) |
+| Claude | limit reset | `POST https://api.anthropic.com/api/organizations/<orgUuid>/reset_rate_limits` same headers, JSON `{program: "cedar_ember", grant_id, request_id}`; answers `{result: reset \| already_used \| not_limited \| cooldown \| ineligible \| unavailable, cleared: [...]}` |
 | Claude | profile | `GET https://api.anthropic.com/api/oauth/profile` same headers |
 | Claude | refresh | `POST https://platform.claude.com/v1/oauth/token` JSON `{grant_type: refresh_token, refresh_token, client_id: 9d1c250a-e61b-44d9-88ed-5944d1962f5e}` |
 | Claude | login | authorize `https://claude.ai/oauth/authorize` with PKCE S256, `scope=org:create_api_key user:profile user:inference`, `redirect_uri=http://localhost:54545/callback`; exchange `POST https://api.anthropic.com/v1/oauth/token` JSON `{grant_type: authorization_code, client_id, code, state, redirect_uri, code_verifier}` |
 | Codex | usage | `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer <access>`, `ChatGPT-Account-ID: <account_id>`, `User-Agent: codex_cli_rs/0.50.0`, `originator: codex_cli_rs` |
+| Codex | reset credits | `GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` same headers as usage; answers `{credits: [{id, status, expires_at, title?}], available_count}` |
+| Codex | limit reset | `POST https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume` JSON `{redeem_request_id, credit_id?}`; answers `{code: reset \| already_redeemed \| nothing_to_reset \| no_credit, windows_reset}` |
 | Codex | refresh | `POST https://auth.openai.com/oauth/token` form `grant_type=refresh_token&client_id=app_EMoamEEZ73f0CkXaXp7hrann&refresh_token=...` |
 
 Claude usage response (normalized by `claudeOauth.normalizeUsage`):
@@ -123,6 +126,16 @@ Claude usage response (normalized by `claudeOauth.normalizeUsage`):
 Codex usage response: `{"plan_type": "pro", "rate_limit": {"primary_window": {"used_percent": 41,
 "limit_window_seconds": 18000, "reset_at": 1788000000}, "secondary_window": {...604800...}}}`.
 `reset_after_seconds` may appear instead of `reset_at`; treat it as relative to now.
+
+Banked limit resets ride along on `Usage.resets` (`ResetCredits`), null when the provider reports
+none. Claude's come from the usage payload's `cedar_ember` block (`eligible`, `grants[]` with
+`id`, `label`, `resets_total`, `resets_left`, `ends_at`, `clears`, `usable_now`, `paused`, plus
+`next_grant_id` and `cooldown_until`). Grants with no id, nothing left, or no future `ends_at`
+are dropped; only the grant named by `next_grant_id`, while `usable_now`, not `paused` and
+outside a cooldown, carries an `id`, because the server spends no other. Codex's come from the
+credits list (status `available`, unexpired), or, when that call fails, from the usage body's
+`rate_limit_reset_credits.available_count` as one entry with id `next` that consumes without a
+`credit_id`.
 
 ## Normalized usage model
 
@@ -226,6 +239,15 @@ credential). Never refresh the *active* account's token; Claude Code owns it.
 * Sends a macOS notification (Electron `Notification`) on automatic switches when `notify`.
 * Watches `<dataDir>/sessions/` (`fs.watch`, 300 ms debounce): every hook event pushes state
   and re-runs the alert check. See [Session alerts](#session-alerts-srcmainsessionsts-attentionts-imessagets).
+* Limit resets: `redeemReset(accountId, creditId)` and `redeemCodexReset(creditId)` spend only a
+  credit the last fetch offered with an id, one at a time per account. Each sends one POST with a
+  fresh UUID idempotency key and never retries (a blind retry could spend two). The active
+  account's token is re-read from the Keychain but never refreshed; if it has lapsed the call
+  is refused. A standby token is rotated first when about to expire. On success an `info`
+  event is logged and the account (or Codex) is re-fetched at once; status line documents
+  written before the reset are ignored so pre-reset numbers cannot overwrite the fresh ones.
+  Anything that spent nothing (`not_limited`, `cooldown`, no credit) rejects with a
+  user-safe reason.
 * Login flow: `startLogin()` cancels any pending login, starts a one-shot HTTP server on
   `127.0.0.1:54545`, opens the authorize URL with `shell.openExternal`, exchanges the code,
   fetches the profile, and adds the account. Times out after 5 minutes. Callbacks whose

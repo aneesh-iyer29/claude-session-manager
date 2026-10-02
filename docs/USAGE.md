@@ -53,6 +53,25 @@ States a card can be in:
 - **Fetch error** — the last usage fetch failed; the numbers shown are from the previous
   success and the error is in Activity.
 
+## Limit resets
+
+Anthropic and OpenAI occasionally give subscribers a banked **limit reset** (the Claude Opus 5.5
+launch handed one to every Pro and Max plan). Spending one puts the 5-hour and weekly limits back
+to full at once; an unused one expires on the date the provider sets.
+
+When an account holds any, a **Limit resets** row appears under its meters, on the hero card,
+on standby cards and in the Codex panel, with how many are banked and when the soonest expires.
+**Use reset** does not spend anything by itself: it opens a confirmation that names the account,
+says which limits go back to full and how many will be left. Press **Use reset** there to spend
+it, or **Cancel** (or Esc) to keep it. The card re-fetches right after and Activity logs the reset.
+
+- A reset the provider will not spend right now (a cooldown, a paused grant) shows *Usable in …*
+  or *Not usable yet* instead of the button.
+- If usage is too low to need a reset, the provider refuses and the reset is kept; the toast
+  says so.
+- For the active Claude account the app uses Claude Code's current token and never refreshes
+  it. If that token has lapsed, send Claude Code a message and try again.
+
 ## Switching manually
 
 Click **Switch to this account** on a standby card, or pick the account from the menu bar
@@ -177,7 +196,8 @@ spot, ignoring the 5-minute hold after a failure, with the time since the last f
 it; the toolbar's **Refresh Claude** leaves Codex alone. After `codex login`, press it to pick
 the new login up without waiting for the next poll. The app refreshes the CLI's token when it is within 30 minutes
 of expiring and writes it back. In API-key mode the CLI has no quota endpoint, so the
-panel only reports that it is configured. Settings → General → *Codex panel* hides it (and stops
+panel only reports that it is configured. Banked Codex limit resets show in the panel and can be
+spent from it; see [Limit resets](#limit-resets). Settings → General → *Codex panel* hides it (and stops
 polling Codex).
 
 ## Menu bar
