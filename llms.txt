@@ -17,7 +17,7 @@ Key facts:
 - [User guide](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/docs/USAGE.md): every panel, setting, and file
 - [Architecture](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/docs/ARCHITECTURE.md): modules, endpoints, the swap policy, and the switch steps
 - [Changelog](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/CHANGELOG.md): release history
-- [Demo video](https://aneesh-iyer29.github.io/claude-session-manager/demo.mp4): 22 seconds, the dashboard auto-swapping accounts at the 90% line and a waiting session arriving as an iMessage
+- [Demo video](https://session-manager.aneeshiyer.com/demo.mp4): 22 seconds, the dashboard auto-swapping accounts at the 90% line and a waiting session arriving as an iMessage
 
 ## Install
 
@@ -27,4 +27,4 @@ Key facts:
 
 - [Contributing](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/CONTRIBUTING.md): setup, ground rules, release steps
 - [AGENTS.md](https://raw.githubusercontent.com/aneesh-iyer29/claude-session-manager/main/AGENTS.md): guidance for coding agents working on the source
-- [Website](https://aneesh-iyer29.github.io/claude-session-manager/): project landing page
+- [Website](https://session-manager.aneeshiyer.com/): project landing page
