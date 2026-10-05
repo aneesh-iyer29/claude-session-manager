@@ -2,7 +2,8 @@
 
 macOS Electron + React + TypeScript app. Watches usage for many Claude Code accounts,
 auto-swaps the active login before the 5-hour session or the chosen weekly window bites, shows
-one Codex account's quota read-only, and can text the user over iMessage when a Claude Code
+one Codex account's quota, spends banked usage-limit resets on either provider when the user
+confirms, and can text the user over iMessage when a Claude Code
 session is waiting on them. One user, no server, no telemetry.
 
 ## Layout
@@ -25,8 +26,8 @@ site/          landing page for GitHub Pages (.github/workflows/pages.yml); llms
 | Keychain read/write via `/usr/bin/security` | `src/main/keychain.ts` |
 | Claude Code's lock files (proper-lockfile dirs) | `src/main/claudeLocks.ts` |
 | Settings / accounts / credentials / usage / events on disk | `src/main/store.ts` |
-| Claude usage, profile, refresh, PKCE login | `src/main/claudeOauth.ts` |
-| Codex `auth.json`, refresh, usage | `src/main/codex.ts` |
+| Claude usage, profile, refresh, PKCE login, limit resets | `src/main/claudeOauth.ts` |
+| Codex `auth.json`, refresh, usage, limit resets | `src/main/codex.ts` |
 | Capture, add, switch (5 steps, restore on failure) | `src/main/switcher.ts` |
 | Swap policy (pure, no I/O) | `src/main/autoswap.ts` |
 | Poll loop, autoswap run, login bookkeeping, notifications | `src/main/daemon.ts` |

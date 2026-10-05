@@ -41,7 +41,8 @@
 | **Many Claude accounts, one dashboard** | Capture the account Claude Code is logged in with, or add more through a browser login. Each account gets a gauge showing its headroom and when its binding window resets. |
 | **Session-first auto-swap** | When the active account's 5-hour session reaches its swap line, or the weekly window you chose (all models, Fable, or whichever is tighter) reaches its own, the app switches Claude Code to the account with the most headroom on the axis that ran out. Cooldown, margin, and a dry-run mode keep it from flapping. |
 | **Texts you when Claude Code needs you** | Lists your open Claude Code sessions and, while you are away from the Mac, sends an iMessage through the Messages app when one is asking a question, waiting on a permission prompt, or done and waiting for you. |
-| **One Codex account, read-only** | If the Codex CLI is logged in with ChatGPT, its 5-hour and weekly windows appear in the sidebar. |
+| **One Codex account** | If the Codex CLI is logged in with ChatGPT, its 5-hour and weekly windows appear in the sidebar. Codex is never switched. |
+| **Limit resets, tracked and spendable** | When Anthropic or OpenAI bank a usage-limit reset on an account, its card shows how many and when they expire. **Use reset**, then confirm, puts that account's 5-hour and weekly limits back to full. |
 | **Menu bar first** | The tray item is a glance menu: a usage bar per window for every account, plus Open and Quit. Switching and settings live in the window, so the menu can never change anything by accident. |
 | **Local only** | One user, no server, no telemetry. Nothing leaves your machine except the calls to Anthropic's and OpenAI's own APIs, and the iMessages you send yourself if you turn alerts on. |
 
@@ -181,7 +182,7 @@ Yes. Install the session hooks, add your phone number or Apple ID email, and Ses
 
 ### Does it show Codex CLI usage too?
 
-For one Codex account signed in with ChatGPT, yes: its 5-hour and weekly windows sit in the sidebar and the tray menu, read-only. Codex is never switched.
+For one Codex account signed in with ChatGPT, yes: its 5-hour and weekly windows sit in the sidebar and the tray menu, along with any banked limit resets you can spend. Codex is never switched.
 
 ### Is it safe? Where do my tokens go?
 

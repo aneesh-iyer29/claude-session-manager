@@ -7,6 +7,7 @@
  * that would touch the network or the Keychain goes through `deps`, so tests
  * can run the real orchestration against fakes.
  */
+import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { DEFAULT_SETTINGS } from '../shared/types'
 import type {
@@ -82,6 +83,8 @@ export interface DaemonDeps {
   readActive?: () => Promise<string | null>
   writeActive?: (value: string) => Promise<void>
   codexSnapshot?: () => Promise<CodexState>
+  /** Spend one Codex reset credit; rejects with a user-safe reason when nothing was spent. */
+  codexRedeem?: (creditId: string, requestId: string) => Promise<codex.RedeemResult>
   openUrl?: (url: string) => void | Promise<void>
   notify?: (title: string, body: string) => void
   /** Seconds since the last keyboard or mouse input anywhere on the Mac; null when unknown. */
@@ -245,6 +248,12 @@ function alertSubject(due: readonly attention.AlertSession[]): string {
   return due.length === 1 && first ? `“${first.project}”` : `${due.length} sessions`
 }
 
+/** " (Opus 5.5 launch): 2 windows back to full" for the activity log. */
+function resetSummary(title: string | null, cleared: number): string {
+  const what = title ? ` (${title})` : ''
+  return cleared > 0 ? `${what}: ${cleared} window${cleared === 1 ? '' : 's'} back to full` : what
+}
+
 export class Daemon {
   private readonly store: Store
   private readonly version: string
@@ -252,6 +261,7 @@ export class Daemon {
   private readonly readActive: () => Promise<string | null>
   private readonly writeActive: (value: string) => Promise<void>
   private readonly codexSnapshot: () => Promise<CodexState>
+  private readonly codexRedeem: (creditId: string, requestId: string) => Promise<codex.RedeemResult>
   private readonly openUrl: (url: string) => void | Promise<void>
   private readonly notify: (title: string, body: string) => void
   private readonly idleSeconds: () => number | null
@@ -299,6 +309,10 @@ export class Daemon {
   private alertRetryAt = 0
   /** The last send failure logged, so a dead Messages setup logs once, not every retry. */
   private lastAlertError: string | null = null
+  /** Accounts (or `codex`) with a reset being spent right now: a second click must not spend another. */
+  private readonly redeeming = new Set<string>()
+  /** When a reset was last spent per account (ms): status line numbers written before it are pre-reset and stale. */
+  private readonly resetSpentAt = new Map<string, number>()
 
   constructor(opts: DaemonOptions) {
     this.store = opts.store
@@ -308,6 +322,12 @@ export class Daemon {
     this.readActive = deps.readActive ?? (() => readActiveCredential())
     this.writeActive = deps.writeActive ?? ((v) => writeActiveCredential(v))
     this.codexSnapshot = deps.codexSnapshot ?? (() => codex.snapshot({ fetchFn: this.fetchFn }))
+    this.codexRedeem =
+      deps.codexRedeem ??
+      (async (creditId, requestId) => {
+        const auth = await codex.maybeRefresh(codex.readAuth(), this.fetchFn, this.now())
+        return codex.redeemReset(auth, creditId, requestId, this.fetchFn)
+      })
     this.openUrl = deps.openUrl ?? defaultOpenUrl
     this.notify = deps.notify ?? defaultNotify
     this.idleSeconds = deps.idleSeconds ?? (() => null)
@@ -840,6 +860,7 @@ export class Daemon {
       error: null,
       windows: [...feed.windows, ...kept],
       plan: previous?.plan ?? acc.plan,
+      resets: previous?.resets ?? null,
     }
     this.store.saveUsage(all)
     this.liveAppliedAt = feed.at.getTime()
@@ -874,6 +895,7 @@ export class Daemon {
   private feedFor(activeId: string): live.LiveUsage | null {
     const feed = live.readLive(dataDir(), this.now())
     if (!feed) return null
+    if (feed.at.getTime() < (this.resetSpentAt.get(activeId) ?? 0)) return null
     if (this.feedOwner(feed, activeId) !== 'other') return feed
     if (feed.at.getTime() !== this.rejectedFeedAt) {
       this.rejectedFeedAt = feed.at.getTime()
@@ -1111,6 +1133,75 @@ export class Daemon {
     this.lastAttempt.delete(acc.id)
     this.emit()
     return this.getState()
+  }
+
+  // ----- limit resets -----
+
+  /**
+   * Spend one banked reset on a Claude account. The credit must be one the
+   * last fetch offered as spendable, so a stale renderer cannot spend a grant
+   * the server no longer names. One attempt, one idempotency key, no retry:
+   * a reset is scarce and a blind retry could spend two. The account is
+   * re-fetched straight after so the meters show the fresh limits.
+   */
+  async redeemReset(accountId: string, creditId: string): Promise<AppState> {
+    const acc = this.require(accountId)
+    const credit = this.store.loadUsage()[acc.id]?.resets?.credits.find((c) => c.id !== null && c.id === creditId)
+    if (!credit) throw new Error('That reset is no longer offered; refresh to see what is left')
+    if (this.redeeming.has(acc.id)) throw new Error('A reset is already being used on this account')
+    this.redeeming.add(acc.id)
+    try {
+      const token = await this.redeemToken(acc)
+      const result = await claudeOauth.redeemReset(token, acc.orgUuid, creditId, randomUUID(), this.fetchFn)
+      this.resetSpentAt.set(acc.id, this.now().getTime())
+      this.store.appendEvent('info', `Used a limit reset on ${acc.email}${resetSummary(credit.title, result.cleared)}`, acc.id)
+      this.lastAttempt.delete(acc.id)
+      this.backoffUntil.delete(acc.id)
+      const current = this.store.getAccount(acc.id)
+      if (current) await this.guard(`refresh ${current.email}`, () => this.refreshAccount(current, this.settings()))
+    } finally {
+      this.redeeming.delete(acc.id)
+    }
+    this.emit()
+    return this.getState()
+  }
+
+  /** The same for the Codex login, then a fresh Codex snapshot. */
+  async redeemCodexReset(creditId: string): Promise<AppState> {
+    const credit = this.codexState.usage?.resets?.credits.find((c) => c.id !== null && c.id === creditId)
+    if (!credit) throw new Error('That reset is no longer offered; refresh Codex to see what is left')
+    if (this.redeeming.has('codex')) throw new Error('A Codex reset is already being used')
+    this.redeeming.add('codex')
+    try {
+      const result = await this.codexRedeem(creditId, randomUUID())
+      this.store.appendEvent('info', `Used a Codex limit reset${resetSummary(credit.title, result.cleared)}`)
+      await this.codexPoll(true)
+    } finally {
+      this.redeeming.delete('codex')
+    }
+    this.emit()
+    return this.getState()
+  }
+
+  /**
+   * A usable access token for spending a reset. The active account's token is
+   * Claude Code's: it is re-read from the Keychain but never refreshed here. A
+   * standby account's is rotated first when it is about to lapse.
+   */
+  private async redeemToken(acc: StoredAccount): Promise<string> {
+    const isActive = acc.id === this.store.loadState().activeId
+    if (isActive) await this.guard('sync active credential', () => this.syncActiveCredential())
+    let cred = this.store.readCredential(acc.id)
+    if (!cred || acc.tokenStatus === 'dead') throw new Error('Log in to this account again before using a reset')
+    if (claudeOauth.isExpired(cred, 60_000, this.now().getTime())) {
+      if (isActive) throw new Error('Claude Code\u2019s token for this account has expired; send Claude Code a message, then try again')
+      await this.refreshAccount(acc, this.settings())
+      cred = this.store.readCredential(acc.id)
+      if (!cred || claudeOauth.isExpired(cred, 60_000, this.now().getTime())) throw new Error('Could not refresh this account\u2019s token; try again shortly')
+    }
+    const token = claudeOauth.extractAccessToken(cred)
+    if (!token) throw new Error('Log in to this account again before using a reset')
+    return token
   }
 
   startLogin(): LoginStatus {

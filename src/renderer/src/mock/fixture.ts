@@ -4,7 +4,7 @@
  * derivation mirrors `autoswap.headroom` / `bindingWindow` so the mock produces
  * the same `Account` shape the daemon would.
  */
-import type { Account, AppState, ClaudeSession, CodexState, Settings, SwapperEvent, Usage, UsageWindow } from '@shared/types'
+import type { Account, AppState, ClaudeSession, CodexState, ResetCredits, Settings, SwapperEvent, Usage, UsageWindow } from '@shared/types'
 import { DEFAULT_SETTINGS } from '@shared/types'
 import { gatingKeys } from '../lib/format'
 
@@ -54,7 +54,7 @@ export function seedAccounts(now: Date): MockAccount[] {
       disabled: false,
       addedAt: iso(t - 20 * DAY),
       tokenStatus: 'ok',
-      usage: makeUsage(now, { fiveHour: 21, weekly: 51, model: 63 }),
+      usage: { ...makeUsage(now, { fiveHour: 21, weekly: 51, model: 63 }), resets: launchReset(now, true) },
     },
     {
       id: 'acc_2',
@@ -90,6 +90,7 @@ export function seedAccounts(now: Date): MockAccount[] {
       usage: {
         ...makeUsage(now, { fiveHour: 88, weekly: 95, model: 91 }),
         plan: 'pro',
+        resets: launchReset(now, false),
         windows: [
           { key: 'five_hour', label: '5-hour', pct: 88, resetsAt: iso(t + 2 * HOUR + 5 * 60_000) },
           { key: 'seven_day', label: 'Weekly', pct: 95, resetsAt: iso(t + 22 * HOUR) },
@@ -98,6 +99,35 @@ export function seedAccounts(now: Date): MockAccount[] {
       },
     },
   ]
+}
+
+/** The Opus 5.5 launch grant; `spendable` false is how a paused grant (or a cooldown) arrives. */
+export function launchReset(now: Date, spendable: boolean): ResetCredits {
+  return {
+    available: 1,
+    cooldownUntil: spendable ? null : iso(now.getTime() + 3 * HOUR),
+    credits: [
+      {
+        id: spendable ? 'opus55-launch-promax-20260921' : null,
+        title: 'Claude Opus 5.5 launch: one usage-limit reset for Pro and Max',
+        count: 1,
+        expiresAt: iso(now.getTime() + 20 * DAY),
+        clears: ['five_hour', 'seven_day'],
+      },
+    ],
+  }
+}
+
+export function seedCodexResets(now: Date): ResetCredits {
+  const t = now.getTime()
+  return {
+    available: 2,
+    cooldownUntil: null,
+    credits: [
+      { id: 'RateLimitResetCredit_a', title: null, count: 1, expiresAt: iso(t + 2 * DAY + 5 * HOUR), clears: [] },
+      { id: 'RateLimitResetCredit_b', title: null, count: 1, expiresAt: iso(t + 26 * DAY), clears: [] },
+    ],
+  }
 }
 
 export function seedCodex(now: Date): CodexState {
@@ -116,6 +146,7 @@ export function seedCodex(now: Date): CodexState {
         { key: 'five_hour', label: '5-hour', pct: 41, resetsAt: iso(t + 3 * HOUR + 12 * 60_000) },
         { key: 'seven_day', label: 'Weekly', pct: 71, resetsAt: iso(t + 4 * DAY + 9 * HOUR) },
       ],
+      resets: seedCodexResets(now),
     },
   }
 }

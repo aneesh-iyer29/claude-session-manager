@@ -879,6 +879,76 @@
   color: var(--warn);
 }
 
+/* ---- limit resets --------------------------------------------------- */
+/* A banked reset sits under the meters as one quiet row. The confirmation
+   opens beneath it in the notice idiom (gold rule) because spending one is
+   the only irreversible write besides Remove. */
+.resets {
+  margin-top: 12px;
+}
+
+.resets__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+.resets__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.resets__summary {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Its own line, so it never truncates in the narrow standby and Codex cards. */
+.resets__expiry {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.resets__confirm {
+  overflow: hidden;
+}
+
+.resets__question {
+  margin: 10px 0 0;
+  padding: 8px 10px 8px 12px;
+  border: 1px solid var(--gold);
+  border-left-width: 4px;
+  border-bottom: 0;
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.resets__actions {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px 10px 12px;
+  border: 1px solid var(--gold);
+  border-left-width: 4px;
+  border-top: 0;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+
 /* ---- claude code sessions ------------------------------------------ */
 /* One row per session: mark, project and timer on the first line, the state
    under the project, then what it is waiting on. The timer column has a fixed

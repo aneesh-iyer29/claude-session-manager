@@ -1,12 +1,13 @@
 import { motion } from 'motion/react'
 import type { Account, NudgeFlag, Settings } from '@shared/types'
 import type { Actions } from '../hooks/useActions'
-import { formatClock, formatPlan, gatingSwapLine, secondaryWindows } from '../lib/format'
+import { displayName, formatClock, formatPlan, gatingSwapLine, secondaryWindows } from '../lib/format'
 import { spring } from '../lib/motion'
 import { Button } from './Button'
 import { Gauge } from './Gauge'
 import { MeterRow } from './Meter'
 import { NameEdit } from './NameEdit'
+import { ResetRow } from './ResetRow'
 
 interface Props {
   account: Account
@@ -61,6 +62,14 @@ export function HeroCard({ account, settings, now, actions, nudge = null }: Prop
           {usage.error} · numbers from {formatClock(usage.fetchedAt)}
         </p>
       ) : null}
+
+      <ResetRow
+        resets={usage?.resets}
+        owner={displayName(account)}
+        now={now}
+        busy={actions.busy.has(`reset:${account.id}`)}
+        onRedeem={(creditId) => actions.redeemReset(account, creditId)}
+      />
 
       {nudge && nudge.accountId === account.id ? (
         <div className="notice" role="status">

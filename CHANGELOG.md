@@ -5,6 +5,14 @@ All notable changes to Session Manager are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Banked usage-limit resets are tracked for every Claude account and the Codex login: a
+  **Limit resets** row under each card's meters shows how many are banked and when the
+  soonest expires. **Use reset** opens a confirmation, and confirming spends one, putting the
+  5-hour and weekly limits back to full. Each spend is a single request with an idempotency
+  key, logged in Activity, and the account is re-fetched right after.
+
 ### Changed
 
 - The repository is now `aneesh-iyer29/claude-session-manager`; old GitHub links redirect.

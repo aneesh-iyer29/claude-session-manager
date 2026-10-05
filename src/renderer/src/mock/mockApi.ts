@@ -5,7 +5,7 @@
  * flow resolves a few seconds later with a fresh account. Nothing here touches
  * the network or disk, so the UI can be built and screenshotted anywhere.
  */
-import type { AppState, ClaudeSession, Decision, LoginStatus, Settings, SwapperEvent } from '@shared/types'
+import type { AppState, ClaudeSession, Decision, LoginStatus, Settings, SwapperEvent, Usage } from '@shared/types'
 import type { SwapperApi } from '@shared/ipc'
 import { normalizeAlertTo } from '../lib/sessions'
 import { buildState, gating, makeUsage, seedAccounts, seedCodex, seedEvents, seedSessions, seedSettings, type MockAccount } from './fixture'
@@ -151,7 +151,9 @@ export function createMockApi(): SwapperApi {
 
     refreshCodex: () =>
       later(() => {
-        codex = seedCodex(new Date())
+        const resets = codex.usage?.resets ?? null
+        const fresh = seedCodex(new Date())
+        codex = fresh.usage ? { ...fresh, usage: { ...fresh.usage, resets } } : fresh
         log('info', 'Refreshed Codex')
         return push()
       }),
@@ -325,6 +327,24 @@ export function createMockApi(): SwapperApi {
         return push()
       }),
 
+    redeemReset: (id, creditId) =>
+      later(() => {
+        const a = find(id)
+        if (!a.usage) throw new Error('That reset is no longer offered; refresh to see what is left')
+        const usage = spendReset(a.usage, creditId)
+        accounts = accounts.map((x) => (x.id === a.id ? { ...x, usage } : x))
+        log('info', `Used a limit reset on ${a.email}: 2 windows back to full`, a.id)
+        return push()
+      }),
+
+    redeemCodexReset: (creditId) =>
+      later(() => {
+        if (!codex.usage) throw new Error('That reset is no longer offered; refresh Codex to see what is left')
+        codex = { ...codex, usage: spendReset(codex.usage, creditId) }
+        log('info', 'Used a Codex limit reset: 2 windows back to full')
+        return push()
+      }),
+
     onState: (cb) => {
       listeners.add(cb)
       return () => {
@@ -334,6 +354,22 @@ export function createMockApi(): SwapperApi {
   }
 
   return api
+}
+
+/** Take one reset from `creditId` and put the windows it clears (every window when unsaid) back to zero. */
+function spendReset(usage: Usage, creditId: string): Usage {
+  const resets = usage.resets
+  const credit = resets?.credits.find((c) => c.id !== null && c.id === creditId)
+  if (!resets || !credit) throw new Error('That reset is no longer offered; refresh to see what is left')
+  const clears = new Set(credit.clears)
+  const credits = resets.credits
+    .map((c) => (c === credit ? { ...c, count: c.count - 1 } : c))
+    .filter((c) => c.count > 0)
+  return {
+    ...usage,
+    windows: usage.windows.map((w) => (clears.size === 0 || clears.has(w.key) ? { ...w, pct: 0 } : w)),
+    resets: { ...resets, available: resets.available - 1, credits },
+  }
 }
 
 /**

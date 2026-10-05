@@ -3,7 +3,7 @@
  * they can be unit-tested without a DOM and so every component renders numbers
  * and countdowns the same way (the brief demands consistent "runway" copy).
  */
-import type { Account, Settings, Usage, UsageWindow } from '@shared/types'
+import type { Account, ResetCredit, ResetCredits, Settings, Usage, UsageWindow } from '@shared/types'
 
 export type Bucket = 'ok' | 'warn' | 'danger' | 'unknown'
 
@@ -198,4 +198,23 @@ export function formatDuration(seconds: number): string {
 
 function pad(n: number): string {
   return n < 10 ? `0${n}` : String(n)
+}
+
+/** The reset the provider would spend now: the first credit that carries an id. */
+export function spendableReset(resets: ResetCredits | null | undefined): ResetCredit | null {
+  return resets?.credits.find((c) => c.id !== null) ?? null
+}
+
+const CLEARED_WINDOW: Readonly<Record<string, string>> = { five_hour: '5-hour', seven_day: 'weekly' }
+
+/**
+ * What spending a reset does, as one sentence for the confirmation. Window
+ * keys the dashboard does not show (Anthropic's overage bucket) are left out;
+ * when the provider names none it falls back to the plain claim.
+ */
+export function resetEffect(clears: readonly string[]): string {
+  const names = [...new Set(clears.map((c) => CLEARED_WINDOW[c]).filter((n): n is string => Boolean(n)))]
+  if (names.length === 1) return `The ${names[0]} limit goes back to full right away.`
+  if (names.length > 1) return `The ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} limits go back to full right away.`
+  return 'The usage limits go back to full right away.'
 }

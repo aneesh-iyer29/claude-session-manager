@@ -30,6 +30,8 @@ const api: SwapperApi = {
   installSessionHooks: () => ipcRenderer.invoke(IPC.installSessionHooks),
   uninstallSessionHooks: () => ipcRenderer.invoke(IPC.uninstallSessionHooks),
   sendTestAlert: () => ipcRenderer.invoke(IPC.sendTestAlert),
+  redeemReset: (accountId: string, creditId: string) => ipcRenderer.invoke(IPC.redeemReset, accountId, creditId),
+  redeemCodexReset: (creditId: string) => ipcRenderer.invoke(IPC.redeemCodexReset, creditId),
   onState: (callback: (state: AppState) => void) => {
     const listener = (_event: IpcRendererEvent, state: AppState): void => callback(state)
     ipcRenderer.on(IPC.stateChanged, listener)
